@@ -15,7 +15,8 @@
 
 | ไฟล์ | หน้าที่ |
 |---|---|
-| `railway.json` | config-as-code: builder NIXPACKS · build `npm run build` · start `npm run start` · pre-deploy `npx prisma migrate deploy` · healthcheck `/api/health` |
+| `railway.json` | config-as-code: **builder DOCKERFILE** (ใช้ `Dockerfile` ที่ root) · pre-deploy `npx prisma migrate deploy` · healthcheck `/api/health` · restart ON_FAILURE (start command = CMD ใน image) |
+| `Dockerfile` | build แบบ reproducible: **node:24-slim → Node 24 + npm 11.x** · `npm ci` จาก lock เท่านั้น · `prisma generate` + `next build` · runtime รัน `next start` (อ่าน `PORT` ของแพลตฟอร์ม) |
 | `prisma/migrations/20260923060000_init/` | migration เริ่มต้น (สร้างตารางครบจาก schema.prisma) — ใช้กับ DB เปล่าของ Railway |
 | `src/app/api/health/route.ts` | healthcheck (ตอบ 200 เสมอเมื่อแอปทำงาน + บอกสถานะ DB) |
 | `package.json` | `start` = `next start` (อ่าน `PORT` ของแพลตฟอร์ม) · `postinstall` = `prisma generate` · `typecheck` · `db:deploy` · `db:status` |
@@ -66,8 +67,8 @@ git check-ignore -v .env       # ต้องขึ้นว่า .gitignore �
 ## 4) ขั้นตอนใน Railway Dashboard (ทำเอง)
 
 1. **สร้าง project** → `New Project` → `Deploy from GitHub repo` → เลือก repo นี้
-   - Railway จะอ่าน `railway.json` และใช้ builder = NIXPACKS
-   - ⚠️ repo นี้มี `Dockerfile` ที่ root — ถ้าไม่ใส่ `railway.json` Railway จะ auto-detect แล้วใช้ Docker แทน (เราบังคับ Nixpacks ไว้แล้ว)
+   - Railway อ่าน `railway.json` แล้วใช้ builder = **DOCKERFILE** (log จะขึ้น `Using detected Dockerfile!`)
+   - image สร้างด้วย Node 24 + npm 11 → `npm ci` ผ่านแน่นอน และไม่ขึ้นกับ npm ของ Nixpacks อีก
 2. **เพิ่ม PostgreSQL**: ใน project canvas → `+ New` → `Database` → `PostgreSQL`
 3. **ผูก DB กับแอป**: ที่ service แอป → `Variables` → `Add Reference Variable` → เลือก `DATABASE_URL` ของ Postgres
 4. **ใส่ Variables ที่เหลือ** ตามตารางข้อ 2 (รวม `NEXT_PUBLIC_APP_URL` เป็น domain จากข้อ 5 — ถ้ายังไม่มี domain ให้ใส่ค่าชั่วคราวก่อน แล้วอัปเดต + redeploy อีกครั้ง)
@@ -137,14 +138,22 @@ git check-ignore -v .env       # ต้องขึ้นว่า .gitignore �
 - เสียง alert: วางไฟล์ MP3 ที่ `public/alerts/alert.mp3` (ตอนนี้ยังไม่มี → เสียง 404 แต่ TTS ยังทำงาน)
 - **ยังไม่ต้องทำ Stripe Live**: เมื่อตรวจ production รอบนี้ผ่านแล้ว ค่อยเปลี่ยนเป็นคีย์ Live + สร้าง endpoint Live
   + อัปเดต `STRIPE_WEBHOOK_SECRET` (ไม่ต้องแก้โค้ด)
-- **npm ที่ใช้ต้องเป็น 11+** — `package.json` pin ไว้แล้วด้วย `"packageManager": "npm@11.6.2"`
-  (Nixpacks ติดตั้งให้อัตโนมัติผ่าน corepack; Node 24 ก็มี npm 11 มาให้อยู่แล้ว)
-  - `package-lock.json` ในโปรเจกต์ถูกตรวจ/ยืนยันด้วย **npm 11** (ทั้ง win32 และจำลอง linux-x64-gnu)
-  - ถ้าใช้ **npm 10** (Node 22) จะเจอ `Missing: @emnapi/runtime@1.11.3 from lock file`
-    ซึ่งเป็นข้อบกพร่องของ npm กับ optional dependency ของ wasm32 ที่ไม่ถูกติดตั้งจริงบน x64
-  - ⚠️ **ห้าม regenerate lock ด้วย npm 10** (เช่น `npm install --package-lock-only` บน Windows)
-    เพราะ npm 10 จะ **ตัด binary ของ Linux ออกจาก lock** (`@next/swc-linux-x64-gnu`, `@tailwindcss/oxide-linux-x64-gnu`,
-    `lightningcss-linux-x64-gnu`, `@img/sharp-linux-x64`, `@esbuild/linux-x64`) → build บน Railway จะพัง
-  - ถ้าต้องการเปลี่ยน dependency ให้รัน `npm install` ด้วย npm 11 แล้วตรวจว่า binary ของทั้ง linux และ win32 ยังอยู่ใน lock
+- **Build strategy = Dockerfile (เลิกใช้ Nixpacks)**: image ใช้ `node:24-slim` → **Node 24 + npm 11.x**
+  (Dockerfile ตรวจ version แบบ hard-fail ถ้าไม่ตรง) และใช้ `npm ci` จาก lock เท่านั้น
+- **`package-lock.json` ต้องสร้างด้วย npm 11.x** (ปัจจุบันยืนยันด้วย npm 11.19 บน Linux แล้ว — ผ่านทั้ง win32 และ linux-x64-gnu)
+  - ⚠️ ห้าม regenerate lock ด้วย **npm 10** (เช่นรันผ่าน Nixpacks/Node 22) เพราะ npm 10 จะ **ตัด binary ของ Linux ออกจาก lock**
+    (`@next/swc-linux-x64-gnu`, `@tailwindcss/oxide-linux-x64-gnu`, `lightningcss-linux-x64-gnu`, `@img/sharp-linux-x64`) → build จะพัง
+  - ถ้าจำเป็นต้องสร้าง lock ใหม่ ให้ทำใน container ที่ตรงกับ image:
+    `docker run --rm -v "$PWD:/app" -w /app node:24-slim sh -c "npm install --package-lock-only --ignore-scripts"`
+- **Build-time variables**: Dockerfile ประกาศ `ARG NEXT_PUBLIC_APP_URL` และ `ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
+  (ค่า `NEXT_PUBLIC_*` ถูก inline ตอน build → ตั้งค่าใน Railway **ก่อน** build รอบแรก ตามเอกสาร "Using variables at build time")
+  ส่วนตัวแปรที่ไม่ใช่ `NEXT_PUBLIC_` ใช้ placeholder เฉพาะตอน build เพื่อผ่าน validation เท่านั้น — **runtime อ่านค่าจริงจาก Railway เสมอ**
+- **ทดสอบในเครื่องก่อน deploy** (แบบเดียวกับที่ Railway ทำ):
+  ```bash
+  docker build --build-arg NEXT_PUBLIC_APP_URL=http://localhost:3300 -t stream-tip-system:local .
+  docker run --rm -p 3300:3000 --env-file .env stream-tip-system:local
+  # ตรวจ: curl http://localhost:3300/api/health  → {"ok":true,"database":"up"}
+  # ตรวจ pre-deploy: docker run --rm --env-file .env stream-tip-system:local npx prisma migrate deploy
+  ```
 
 

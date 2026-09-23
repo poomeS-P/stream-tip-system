@@ -1,58 +1,92 @@
-FROM node:20-alpine AS base
+# ============================================================
+# stream-tip-system — production image
+#
+# ทำไมใช้ Dockerfile (แทน Nixpacks):
+#   - ตรึง Node/npm ให้ reproducible:  node:24-slim → Node 24 + npm 11.x
+#     (Nixpacks ยังใช้ npm 10 ซึ่งปฏิเสธ package-lock.json นี้ด้วยบั๊ก
+#      "Missing: @emnapi/* from lock file" ของ optional dependency)
+#   - ใช้ npm ci จาก lock เท่านั้น → ห้ามใช้ npm install ในทุกขั้นตอนของ build
+#   - ใช้ Debian (glibc) ให้ตรงกับ binary ที่ lock เลือกไว้:
+#     @next/swc-linux-x64-gnu, @tailwindcss/oxide-linux-x64-gnu,
+#     lightningcss-linux-x64-gnu, @img/sharp-linux-x64, esbuild
+#
+# Railway ใช้ไฟล์นี้เมื่อ railway.json ตั้ง `"builder": "DOCKERFILE"`
+#   - runtime env: Railway ฉีด PORT ให้เอง (ไม่ hard-code) → `next start` อ่านค่านั้น
+#   - pre-deploy: `npx prisma migrate deploy` (Prisma CLI อยู่ใน image นี้แล้ว)
+#   - healthcheck: GET /api/health
+# ============================================================
 
-# Install dependencies only when needed
+FROM node:24-slim AS base
+WORKDIR /app
+
+# openssl = สิ่งที่ Prisma engine ต้องใช้บน Debian slim
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# ยืนยันเวอร์ชันจริงใน image — ถ้าไม่ใช่ Node 24 / npm 11 ให้ build ล้มทันที
+# (กัน regression เช่น image tag เปลี่ยนหรือถูกลดเวอร์ชันโดยไม่ตั้งใจ)
+RUN node --version && npm --version \
+    && node -e "const v=process.versions.node; if(v.split('.')[0]!=='24'){console.error('FAIL: Node 24 required, got '+v);process.exit(1)}; console.log('OK: Node '+v)" \
+    && node -e "const {execSync}=require('child_process'); const m=execSync('npm --version').toString().trim(); if(!m.startsWith('11.')){console.error('FAIL: npm 11.x required, got '+m);process.exit(1)}; console.log('OK: npm '+m)"
+
+# ---------- 1) dependencies (ติดตั้งจาก lock เท่านั้น) ----------
 FROM base AS deps
-RUN apk add --no-cache libc6-compat
-WORKDIR /app
-
-# Install dependencies based on the preferred package manager
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY prisma ./prisma/
-RUN npm ci
+# postinstall ของโปรเจกต์ = `prisma generate` (สร้าง client ให้ตรง schema)
+RUN npm ci --no-audit --no-fund
 
-# Rebuild the source code only when needed
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
+# ---------- 2) build (Next.js production) ----------
+FROM deps AS builder
 COPY . .
-
-# Generate Prisma Client
-RUN npx prisma generate
-
-# Build Next.js
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV NODE_ENV=production
-RUN npm run build
 
-# Production image, copy all the files and run next
+# Railway ส่ง service variables ให้ตอน build ได้ แต่ต้องประกาศเป็น ARG
+# (เอกสาร Railway: "Using variables at build time")
+# NEXT_PUBLIC_* ถูก inline ลง bundle ตอน build → ต้องส่งค่าจริงมาจาก Railway
+ARG NEXT_PUBLIC_APP_URL
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-pk_test_build_placeholder}
+
+# ตัวแปรที่ไม่ใช่ NEXT_PUBLIC_ จะถูกอ่านจาก runtime เสมอ (ไม่ inline)
+# → ใช้ placeholder เพื่อให้ผ่าน validation (zod) ตอน build เท่านั้น
+#   ไม่ใช่ค่าจริง ไม่ใช่ secret และไม่ติดไปกับ runtime stage (คนละ stage)
+ENV DATABASE_URL=postgresql://build_placeholder:build_placeholder@127.0.0.1:5432/build_placeholder?schema=public
+ENV ADMIN_TOKEN=build_time_placeholder_admin_token_0001
+ENV OVERLAY_TOKEN=build_time_placeholder_overlay_token_0001
+ENV STRIPE_SECRET_KEY=sk_test_build_time_placeholder
+ENV STRIPE_WEBHOOK_SECRET=whsec_build_time_placeholder
+
+# generate ซ้ำแบบ explicit เพื่อความชัดเจนว่า client ตรงกับ schema ปัจจุบัน
+RUN npx prisma generate \
+    && npm run build
+
+# ---------- 3) runtime ----------
 FROM base AS runner
-WORKDIR /app
-
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+# หมายเหตุ: ไม่ตั้ง PORT ที่นี่ — Railway ฉีดให้ตอน runtime และ `next start` อ่านค่านั้น
+#           (ถ้าไม่มี PORT เลย Next จะ fallback เป็น 3000 ตาม EXPOSE ด้านล่าง)
 
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN groupadd --system --gid 1001 nodejs \
+    && useradd --system --uid 1001 --gid nodejs nextjs
 
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-
-# Set the correct permission for prerender cache
-RUN mkdir .next
-RUN chown nextjs:nodejs .next
-
-# Automatically leverage output traces to reduce image size
-# https://nextjs.org/docs/advanced-features/output-file-tracing
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# node_modules แบบเต็ม (prod + dev) เพื่อให้ npx prisma / npm run db:seed ใช้ใน container ได้
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:nodejs /app/next.config.ts ./next.config.ts
+COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./tsconfig.json
+COPY --from=builder --chown=nextjs:nodejs /app/next-env.d.ts ./next-env.d.ts
 
 USER nextjs
-
 EXPOSE 3000
 
-# Do NOT hard-code PORT here: the platform (Railway) injects PORT at runtime.
-# If PORT is absent, the standalone server falls back to 3000.
-ENV HOSTNAME="0.0.0.0"
+# รัน node ตรง ๆ (ไม่ผ่าน npm) เพื่อให้ PID 1 รับ SIGTERM เองตามที่ Railway แนะนำ
+CMD ["node", "node_modules/next/dist/bin/next", "start"]
 
-CMD ["node", "server.js"]

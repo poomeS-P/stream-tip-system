@@ -190,7 +190,7 @@ docker-compose exec app npm run db:seed
 คู่มือเต็มอยู่ที่ **[docs/RAILWAY_DEPLOY.md](docs/RAILWAY_DEPLOY.md)** — สรุปย่อ:
 
 1. push repo ขึ้น GitHub (ไฟล์ `.env` ถูก ignore ไว้แล้ว — ห้าม commit ค่าจริง)
-2. Railway → `New Project` → `Deploy from GitHub repo` (ระบบอ่าน `railway.json` ให้เอง: builder Nixpacks)
+2. Railway → `New Project` → `Deploy from GitHub repo` → เลือก repo (Railway อ่าน `railway.json` → ใช้ **Dockerfile + Node 24 + npm 11**)
 3. `+ New` → `Database` → `PostgreSQL` → ที่ service แอปเพิ่ม **Reference Variable** `DATABASE_URL`
 4. ตั้ง Variables: `DATABASE_URL` (reference) · `NEXT_PUBLIC_APP_URL` · `ADMIN_TOKEN` · `OVERLAY_TOKEN` · `NODE_ENV=production` · `STRIPE_SECRET_KEY` · `STRIPE_WEBHOOK_SECRET`
    ⚠️ **ห้ามตั้ง `PORT`** (Railway จัดการเอง) · `NEXT_PUBLIC_*` ต้องตั้งก่อน build รอบแรก
