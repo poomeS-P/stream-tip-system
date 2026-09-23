@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { env } from "@/lib/env";
+import { isOverlayToken } from "@/lib/overlay-token";
 
 /**
  * ตรวจสอบ Admin Token จาก Authorization header หรือ Cookie
@@ -25,8 +26,10 @@ export function verifyAdminToken(req: NextRequest): boolean {
 /**
  * ตรวจสอบ Overlay Token สำหรับ OBS Browser Source SSE stream
  * ใช้ Query Parameter เนื่องจาก Browser Source ไม่รองรับ custom header
+ *
+ * ใช้ isOverlayToken() เพื่อรองรับกรณี token มี "+" แล้วถูก decode เป็นเว้นวรรค
+ * (ผู้ใช้ paste URL ดิบ ๆ) — ดู src/lib/overlay-token.ts
  */
 export function verifyOverlayToken(req: NextRequest): boolean {
-  const token = req.nextUrl.searchParams.get("token");
-  return token !== null && token === env.OVERLAY_TOKEN;
+  return isOverlayToken(req.nextUrl.searchParams.get("token"), env.OVERLAY_TOKEN);
 }

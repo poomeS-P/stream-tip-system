@@ -111,7 +111,9 @@ export default function OverlayClient({ token }: OverlayClientProps) {
   // เชื่อมต่อ SSE — ประกาศหลัง useCallback ทั้งหมด เพื่อให้ตัวแปรถูก declare ก่อนถูกใช้งาน
   useEffect(() => {
     function connect() {
-      const es = new EventSource(`/api/alerts/stream?token=${token}`);
+      // encodeURIComponent สำคัญมาก: ถ้า token มี "+" แล้วใส่ดิบ ๆ
+      // ตัว "+" ใน query string จะถูกตีความเป็น "เว้นวรรค" → server เทียบ token ไม่ตรง (401)
+      const es = new EventSource(`/api/alerts/stream?token=${encodeURIComponent(token)}`);
       eventSourceRef.current = es;
 
       es.addEventListener("alert", (e) => {
