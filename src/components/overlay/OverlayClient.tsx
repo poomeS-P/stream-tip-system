@@ -14,6 +14,17 @@ const MAX_QUEUE = 10;
 /** เว้นช่วงก่อนเริ่มรายการถัดไป (ให้ animation ออกของการ์ดเดิมจบก่อน) */
 const EXIT_MS = 600;
 
+/** เวลาที่สั้นที่สุด/นานที่สุดที่ยอมให้ Alert ค้างบนจอ (กันขึ้นแวบเดียว หรือค้างยาวผิดปกติ) */
+const MIN_DISPLAY_MS = 3000;
+const MAX_DISPLAY_MS = 60_000;
+
+declare global {
+  interface Window {
+    /** ไทม์ไลน์สำหรับวินิจฉัย (?alertdiag=1 เพื่อโชว์บนจอ) */
+    __alertLog?: string[];
+  }
+}
+
 /**
  * สร้างข้อความสำหรับ TTS
  * เป็น pure function จึงประกาศไว้นอก component เพื่อให้ reference คงที่
@@ -28,6 +39,25 @@ function buildTTSText(payload: AlertEventPayload): string {
     return `${name} บริจาค ${amount} บาท ${msg}`;
   }
   return `${name} บริจาค ${amount} บาท`;
+}
+
+/**
+ * เวลาที่จะค้างบนจอ (ms)
+ * - ใช้ค่าที่ Server คำนวณมา (ปรับตามความยาวข้อความแล้ว) ถ้าค่าถูกต้อง
+ * - ถ้าค่าเสีย/ไม่มี (NaN, 0, ติดลบ) ให้ประมาณจากความยาวข้อความเอง
+ *   สำคัญ: กัน setTimeout(fn, NaN) ซึ่งจะยิงทันที -> การ์ดขึ้นแวบเดียวแล้วหาย
+ */
+function resolveDisplayMs(payload: AlertEventPayload): number {
+  const seconds = Number(payload.durationSeconds);
+
+  if (Number.isFinite(seconds) && seconds * 1000 >= MIN_DISPLAY_MS) {
+    return Math.min(MAX_DISPLAY_MS, seconds * 1000);
+  }
+
+  const chars = buildTTSText(payload).length;
+  const estimated = 2500 + chars * 110;
+
+  return Math.max(MIN_DISPLAY_MS, Math.min(MAX_DISPLAY_MS, estimated));
 }
 
 export default function OverlayClient({ token }: OverlayClientProps) {
@@ -54,6 +84,23 @@ export default function OverlayClient({ token }: OverlayClientProps) {
   const playRef = useRef<(payload: AlertEventPayload) => void>(() => {});
   const finishRef = useRef<(alertId?: string) => void>(() => {});
 
+  // กัน timer ที่ค้างจากรอบก่อนมายิงทับรายการปัจจุบัน (อาการ "อันที่ 2 ขึ้นแวบเดียวแล้วหาย")
+  const epochRef = useRef(0);
+  const drainRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // โหมดวินิจฉัย: ดูไทม์ไลน์บนจอได้ด้วย ?alertdiag=1
+  const [diagLines, setDiagLines] = useState<string[]>([]);
+  const [showDiag, setShowDiag] = useState(false);
+
+  const logDiag = useCallback((line: string) => {
+    if (typeof window === "undefined") return;
+
+    window.__alertLog = window.__alertLog ?? [];
+    window.__alertLog.push(`${Math.round(performance.now())}ms ${line}`);
+
+    if (window.__alertLog.length > 60) window.__alertLog.shift();
+  }, []);
+
   useEffect(() => {
     emergencyRef.current = emergency;
   }, [emergency]);
@@ -72,10 +119,28 @@ export default function OverlayClient({ token }: OverlayClientProps) {
 
   /** เริ่มแสดง Alert หนึ่งรายการ (เสียง + TTS + ตั้งเวลาปิดเอง) */
   const playAlert = useCallback((payload: AlertEventPayload) => {
+    // เริ่มรอบใหม่: ยกเลิก timer ปิด/drain ที่ค้างอยู่ + ออก epoch ใหม่
+    // -> timer ของรายการก่อนหน้าจะปิดรายการนี้ไม่ได้อีก
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+
+    if (drainRef.current) {
+      clearTimeout(drainRef.current);
+      drainRef.current = null;
+    }
+
+    epochRef.current += 1;
+    const epoch = epochRef.current;
+
     busyRef.current = true;
     setCurrentAlert(payload);
     setIsVisible(true);
     currentAlertIdRef.current = payload.alertId;
+
+    const displayMs = resolveDisplayMs(payload);
+    logDiag(`play ${payload.donorName} ${displayMs}ms (รอคิว ${queueRef.current.length})`);
 
     // เล่นเสียง Alert Sound
     const audio = new Audio(payload.soundUrl);
@@ -99,31 +164,46 @@ export default function OverlayClient({ token }: OverlayClientProps) {
       }, 800);
     }
 
-    // durationSeconds ถูกคำนวณจากความยาวข้อความมาแล้วที่ Server (ดู src/lib/alert-duration.ts)
-    const displayMs = Math.max(3, payload.durationSeconds) * 1000;
-
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => finishRef.current(payload.alertId), displayMs);
-  }, []);
+    timeoutRef.current = setTimeout(() => {
+      if (epochRef.current !== epoch) return;      // มีรายการใหม่กว่าเริ่มไปแล้ว -> ห้ามปิด
+      finishRef.current(payload.alertId);
+    }, displayMs);
+  }, [logDiag]);
 
   /** จบ Alert ปัจจุบัน -> ACK -> เล่นรายการถัดไปในคิว (ถ้ามี) */
   const finishAlert = useCallback(
     (alertId?: string) => {
-      const id = alertId ?? currentAlertIdRef.current;
+      const current = currentAlertIdRef.current;
+
+      // timer ปิดของรายการเก่ามายิงช้า -> ต้องไม่ไปปิดรายการที่กำลังแสดงอยู่
+      if (alertId && alertId !== current) return;
+
+      const id = alertId ?? current;
+      const epoch = epochRef.current;
 
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
         timeoutRef.current = null;
       }
 
+      if (drainRef.current) {
+        clearTimeout(drainRef.current);
+        drainRef.current = null;
+      }
+
       setIsVisible(false);
       window.speechSynthesis?.cancel();
       currentAlertIdRef.current = null;
+      logDiag(`finish ${id ?? "-"}`);
 
       if (id) ackAlert(id);
 
       // รอให้การ์ดเดิมจางหายก่อน แล้วจึงเริ่มรายการถัดไป
-      setTimeout(() => {
+      drainRef.current = setTimeout(() => {
+        drainRef.current = null;
+
+        if (epochRef.current !== epoch) return;    // มีรายการใหม่เริ่มไปแล้ว -> อย่าไปยุ่ง
+
         const next = queueRef.current.shift();
 
         if (next) {
@@ -133,9 +213,10 @@ export default function OverlayClient({ token }: OverlayClientProps) {
 
         busyRef.current = false;
         setCurrentAlert(null);
+        logDiag("idle (คิวว่าง)");
       }, EXIT_MS);
     },
-    [ackAlert]
+    [ackAlert, logDiag]
   );
 
   useEffect(() => {
@@ -155,11 +236,26 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     if (queueRef.current.some((item) => item.alertId === payload.alertId)) return;
 
     if (busyRef.current) {
-      if (queueRef.current.length < MAX_QUEUE) queueRef.current.push(payload);
+      if (queueRef.current.length < MAX_QUEUE) {
+        queueRef.current.push(payload);
+        logDiag(`queue +1 ${payload.donorName} (รวม ${queueRef.current.length})`);
+      }
       return;
     }
 
     playRef.current(payload);
+  }, [logDiag]);
+
+  // โหมดวินิจฉัย (?alertdiag=1): โชว์ไทม์ไลน์มุมล่างซ้าย เพื่อดูว่าใครปิดการ์ด
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("alertdiag") !== "1") return;
+
+    const timer = setInterval(() => {
+      setDiagLines([...(window.__alertLog ?? [])]);
+      setShowDiag(true);
+    }, 500);
+
+    return () => clearInterval(timer);
   }, []);
 
   // เชื่อมต่อ SSE — ประกาศหลัง useCallback ทั้งหมด เพื่อให้ตัวแปรถูก declare ก่อนถูกใช้งาน
@@ -286,6 +382,13 @@ export default function OverlayClient({ token }: OverlayClientProps) {
             }
           `}</style>
         </div>
+      )}
+
+      {/* ไทม์ไลน์วินิจฉัย — แสดงเฉพาะเมื่อเติม ?alertdiag=1 ท้าย URL */}
+      {showDiag && (
+        <pre className="fixed bottom-2 left-2 z-50 max-w-[620px] whitespace-pre-wrap rounded bg-black/75 p-2 text-left text-[11px] leading-tight text-lime-300">
+          {diagLines.join("\n")}
+        </pre>
       )}
     </div>
   );
