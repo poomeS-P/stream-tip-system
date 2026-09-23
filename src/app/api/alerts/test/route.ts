@@ -3,8 +3,8 @@ import { z } from "zod";
 import { verifyAdminToken } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { filterContent, sanitizeName } from "@/lib/filter";
-import { broadcastAlert } from "@/lib/sse";
-import type { AlertEventPayload } from "@/types";
+import { broadcastNextPendingAlertIfIdle } from "@/lib/alert-queue";
+import { computeAlertDurationSeconds } from "@/lib/alert-duration";
 
 const testAlertSchema = z.object({
   donorName: z.string().max(50).optional().default("Test User"),
@@ -41,11 +41,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const bannedWords = settings?.bannedWords ?? [];
   const blockEntire = settings?.blockEntireMessage ?? false;
   const maxLen = settings?.maxMessageLength ?? 150;
-  const duration = settings?.alertDurationSec ?? 8;
   const minTTS = settings ? Number(settings.minAmountForTTS) : 20;
 
   const filterResult = filterContent(message, bannedWords, blockEntire, maxLen);
   const cleanName = sanitizeName(donorName, 50);
+
+  // เวลาที่ค้างบนจอ = ขั้นต่ำที่ตั้งไว้ + เพิ่มตามความยาวข้อความ (ดู src/lib/alert-duration.ts)
+  const duration = computeAlertDurationSeconds({
+    donorName: cleanName,
+    amount,
+    message: filterResult.cleanText,
+    baseSeconds: settings?.alertDurationSec ?? 8,
+  });
 
   // สร้าง fake tip + alert สำหรับทดสอบ
   const fakeTip = await db.tip.create({
@@ -72,21 +79,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     },
   });
 
-  const payload: AlertEventPayload = {
-    alertId: fakeAlert.id,
-    tipId: fakeTip.id,
-    donorName: cleanName,
-    amount,
-    currency: process.env.DEFAULT_CURRENCY ?? "THB",
-    message: filterResult.cleanText,
-    hasFilteredWord: filterResult.hasFilteredWord,
-    ttsEnabled: amount >= minTTS,
-    soundUrl: "/alerts/alert.mp3",
-    durationSeconds: duration,
-    createdAt: fakeAlert.createdAt.toISOString(),
-  };
+  // ส่งให้ OBS ทันทีถ้าว่าง — ถ้ามี Alert กำลังเล่นอยู่ รายการนี้จะค้างเป็น PENDING
+  // (priority 999 = สูงสุด จึงได้เล่นเป็นรายการถัดไปแน่นอน)
+  const tick = await broadcastNextPendingAlertIfIdle();
 
-  broadcastAlert(payload);
-
-  return NextResponse.json({ success: true, alertId: fakeAlert.id });
+  return NextResponse.json({ success: true, alertId: fakeAlert.id, queued: !tick.broadcast });
 }

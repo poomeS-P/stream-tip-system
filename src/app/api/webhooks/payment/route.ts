@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getPaymentProvider } from "@/lib/payment";
-import { broadcastAlert } from "@/lib/sse";
-import type { AlertEventPayload } from "@/types";
+import { broadcastNextPendingAlertIfIdle } from "@/lib/alert-queue";
+import { computeAlertDurationSeconds } from "@/lib/alert-duration";
 
 /**
  * POST /api/webhooks/payment
@@ -45,13 +45,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // ป้องกัน Webhook ซ้ำด้วย DB Unique Constraint + Transaction
   // ถ้า eventId ซ้ำ → Prisma throw P2002 → return 200 OK ทันที (Idempotent)
   //
-  // สำคัญ: ห้ามเรียก broadcastAlert ภายใน callback ของ $transaction
+  // สำคัญ: ห้ามส่ง Alert ภายใน callback ของ $transaction
   // เพราะถ้า transaction rollback ทีหลัง OBS จะได้รับ Alert ของรายการที่ไม่ได้ commit
-  // วิธีที่ถูกต้อง: ให้ callback คืน payload ออกมา แล้ว broadcast หลัง commit สำเร็จเท่านั้น
-  let alertToBroadcast: AlertEventPayload | null = null;
-
+  // วิธีที่ถูกต้อง: เขียนคิวลง DB ใน transaction แล้วค่อยเรียกคิวหลัง commit สำเร็จเท่านั้น
   try {
-    alertToBroadcast = await db.$transaction(async (tx): Promise<AlertEventPayload | null> => {
+    await db.$transaction(async (tx): Promise<null> => {
       // INSERT WebhookEventLog — จะ throw P2002 ถ้า eventId ซ้ำ
       await tx.webhookEventLog.create({
         data: {
@@ -143,10 +141,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         const settings = await tx.systemSetting.findUnique({ where: { id: "default" } });
         const tipAmount = Number(paymentTx.amountCharged);
         const minTTS = settings ? Number(settings.minAmountForTTS) : 20;
-        const duration = settings?.alertDurationSec ?? 8;
+        const duration = computeAlertDurationSeconds({
+          donorName: paymentTx.tip.donorName,
+          amount: tipAmount,
+          message: paymentTx.tip.cleanMessage ?? paymentTx.tip.message ?? "",
+          baseSeconds: settings?.alertDurationSec ?? 8,
+        });
 
         // สร้าง AlertQueue entry
-        const alert = await tx.alertQueue.create({
+        await tx.alertQueue.create({
           data: {
             tipId: paymentTx.tipId,
             status: "PENDING",
@@ -163,25 +166,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           data: { processed: true },
         });
 
-        // สร้าง payload ที่จะใช้ broadcast ไว้ "คืนค่า" ออกไป
-        // โดยยังไม่ broadcast ในนี้ — caller จะ broadcast หลัง transaction commit สำเร็จ
-        const tip = paymentTx.tip;
-        const alertPayload: AlertEventPayload = {
-          alertId: alert.id,
-          tipId: tip.id,
-          donorName: tip.donorName,
-          amount: tipAmount,
-          currency: tip.currency,
-          message: tip.cleanMessage ?? tip.message ?? "",
-          hasFilteredWord: tip.hasFilteredWord,
-          ttsEnabled: tipAmount >= minTTS,
-          soundUrl: "/alerts/alert.mp3",
-          durationSeconds: duration,
-          createdAt: alert.createdAt.toISOString(),
-        };
-
-        // คืน payload ออกไปให้ caller broadcast หลัง commit เท่านั้น
-        return alertPayload;
+        // ไม่ broadcast ในนี้ — caller จะเรียกคิวหลัง transaction commit สำเร็จ
+        return null;
       }
 
       // Non-payment event (เช่น checkout.session.expired) — mark processed
@@ -203,12 +189,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 
-  // Broadcast หลัง await db.$transaction(...) สำเร็จเท่านั้น
-  // ถ้า transaction rollback จะ throw ไปที่ catch ด้านบน → ไม่ broadcast
-  // จึงรับประกันได้ว่า OBS จะไม่ได้รับ Alert ของรายการที่ไม่ได้ commit ลง DB
-  if (alertToBroadcast) {
-    broadcastAlert(alertToBroadcast);
-  }
+  // ส่ง Alert ถัดไปในคิวหลัง commit สำเร็จเท่านั้น
+  // ถ้า transaction rollback จะ throw ไปที่ catch ด้านบน → ไม่ส่ง
+  // ถ้ามี Alert กำลังเล่นอยู่ รายการใหม่จะค้างเป็น PENDING -> เล่นต่อเมื่ออันเดิมจบ (ไม่ทับกัน)
+  await broadcastNextPendingAlertIfIdle();
 
   return NextResponse.json({ received: true });
 }

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // เอนจินควันที่ generate มาจากระบบเก่า (ดู scripts/extract-smoke-engine.mjs) — ไม่ใช่โค้ดที่เราแก้เอง
+    "public/smoke/smoke-engine.js",
   ]),
 ]);
 

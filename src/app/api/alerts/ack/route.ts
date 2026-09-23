@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyOverlayToken } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { broadcastAlert } from "@/lib/sse";
-import type { AlertEventPayload } from "@/types";
+import { broadcastNextPendingAlertIfIdle } from "@/lib/alert-queue";
 
 const ackSchema = z.object({
   alertId: z.string().uuid(),
@@ -44,39 +43,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     data: { status: "COMPLETED", completedAt: new Date() },
   });
 
-  // ดึง Alert ถัดไป
-  const next = await db.alertQueue.findFirst({
-    where: { status: "PENDING" },
-    orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
-    include: { tip: true },
+  // ส่ง Alert ถัดไปในคิว — เฉพาะเมื่อไม่มีรายการกำลังเล่นอยู่ (กันส่งทับกัน)
+  const tick = await broadcastNextPendingAlertIfIdle();
+
+  return NextResponse.json({
+    success: true,
+    next: tick.alertId,
+    queued: tick.reason === "busy",
   });
-
-  if (next) {
-    const settings = await db.systemSetting.findUnique({ where: { id: "default" } });
-    const tipAmount = Number(next.tip.amount);
-    const minTTS = settings ? Number(settings.minAmountForTTS) : 20;
-
-    const payload: AlertEventPayload = {
-      alertId: next.id,
-      tipId: next.tip.id,
-      donorName: next.tip.donorName,
-      amount: tipAmount,
-      currency: next.tip.currency,
-      message: next.tip.cleanMessage ?? next.tip.message ?? "",
-      hasFilteredWord: next.tip.hasFilteredWord,
-      ttsEnabled: next.ttsEnabled && tipAmount >= minTTS,
-      soundUrl: next.soundUrl ?? "/alerts/alert.mp3",
-      durationSeconds: next.durationSeconds,
-      createdAt: next.createdAt.toISOString(),
-    };
-
-    broadcastAlert(payload);
-
-    await db.alertQueue.update({
-      where: { id: next.id },
-      data: { status: "PLAYING", displayedAt: new Date() },
-    });
-  }
-
-  return NextResponse.json({ success: true });
 }

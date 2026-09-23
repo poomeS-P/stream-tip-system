@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { verifyOverlayToken } from "@/lib/auth";
 import { createSSEStream, sendHeartbeats } from "@/lib/sse";
-import { db } from "@/lib/db";
-import { broadcastAlert } from "@/lib/sse";
-import type { AlertEventPayload } from "@/types";
+import { broadcastNextPendingAlertIfIdle } from "@/lib/alert-queue";
 
 /**
  * GET /api/alerts/stream?token=OVERLAY_TOKEN
@@ -36,37 +34,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     sendHeartbeats();
   }, 15_000);
 
-  // ส่ง PENDING alert ที่ค้างอยู่ทันทีที่ OBS reconnect
-  const pendingAlert = await db.alertQueue.findFirst({
-    where: { status: "PENDING" },
-    orderBy: [{ priority: "desc" }, { createdAt: "asc" }],
-    include: {
-      tip: true,
-    },
+  // ส่ง Alert ที่ค้างอยู่ในคิวทันทีที่ OBS (re)connect — ถ้าไม่มีรายการกำลังเล่นอยู่
+  // (รายการที่ค้างสถานะ PLAYING จะถูกส่งต่อเมื่อ OBS ACK ของเดิม)
+  setImmediate(() => {
+    void broadcastNextPendingAlertIfIdle();
   });
-
-  if (pendingAlert) {
-    const settings = await db.systemSetting.findUnique({ where: { id: "default" } });
-    const tipAmount = Number(pendingAlert.tip.amount);
-    const minTTS = settings ? Number(settings.minAmountForTTS) : 20;
-
-    const payload: AlertEventPayload = {
-      alertId: pendingAlert.id,
-      tipId: pendingAlert.tip.id,
-      donorName: pendingAlert.tip.donorName,
-      amount: tipAmount,
-      currency: pendingAlert.tip.currency,
-      message: pendingAlert.tip.cleanMessage ?? pendingAlert.tip.message ?? "",
-      hasFilteredWord: pendingAlert.tip.hasFilteredWord,
-      ttsEnabled: pendingAlert.ttsEnabled && tipAmount >= minTTS,
-      soundUrl: pendingAlert.soundUrl ?? "/alerts/alert.mp3",
-      durationSeconds: pendingAlert.durationSeconds,
-      createdAt: pendingAlert.createdAt.toISOString(),
-    };
-
-    // ส่งหลัง stream เริ่มต้นแล้ว
-    setImmediate(() => broadcastAlert(payload));
-  }
 
   console.log(`[sse] OBS client connected: ${clientId}`);
 

@@ -8,6 +8,12 @@ interface OverlayClientProps {
   token: string;
 }
 
+/** จำนวน Alert สูงสุดที่รอคิวได้ (กันคิวบวมผิดปกติ) */
+const MAX_QUEUE = 10;
+
+/** เว้นช่วงก่อนเริ่มรายการถัดไป (ให้ animation ออกของการ์ดเดิมจบก่อน) */
+const EXIT_MS = 600;
+
 /**
  * สร้างข้อความสำหรับ TTS
  * เป็น pure function จึงประกาศไว้นอก component เพื่อให้ reference คงที่
@@ -41,80 +47,125 @@ export default function OverlayClient({ token }: OverlayClientProps) {
   // alertId ที่กำลังแสดงอยู่ ใช้สำหรับ ACK เมื่อถูกสั่งซ่อนโดยไม่ระบุ id
   const currentAlertIdRef = useRef<string | null>(null);
 
+  // คิว Alert ฝั่ง Overlay — โดเนทมาพร้อมกันต้องเล่นเรียงกัน ไม่ทับกันจนอันหนึ่งหาย
+  const queueRef = useRef<AlertEventPayload[]>([]);
+  const busyRef = useRef(false);
+  // อ้างฟังก์ชันผ่าน ref เพื่อให้ playAlert/finishAlert เรียกกันเองได้โดยไม่เกิด dependency วน
+  const playRef = useRef<(payload: AlertEventPayload) => void>(() => {});
+  const finishRef = useRef<(alertId?: string) => void>(() => {});
+
   useEffect(() => {
     emergencyRef.current = emergency;
   }, [emergency]);
 
-  const hideAlert = useCallback(
-    (alertId?: string) => {
-      setIsVisible(false);
-      window.speechSynthesis?.cancel();
-
-      // ACK กลับไปยัง Server พร้อม Overlay Token (ต้องมี token จึงจะ ACK ได้)
-      const id = alertId ?? currentAlertIdRef.current;
-      currentAlertIdRef.current = null;
-
-      if (id) {
-        fetch(`/api/alerts/ack?token=${encodeURIComponent(token)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ alertId: id }),
-        }).catch(() => {});
-      }
-
-      // รอให้ animation ออกจบก่อนล้าง state
-      setTimeout(() => setCurrentAlert(null), 600);
+  /** ACK กลับ Server พร้อม Overlay Token (แจ้งว่าแสดงจบแล้ว -> Server จะส่งรายการถัดไปในคิว) */
+  const ackAlert = useCallback(
+    (alertId: string) => {
+      fetch(`/api/alerts/ack?token=${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alertId }),
+      }).catch(() => {});
     },
     [token]
   );
 
-  const showAlert = useCallback(
-    (payload: AlertEventPayload) => {
-      // ถ้า Emergency muted ไม่แสดง
-      if (emergencyRef.current.alertMuted) return;
+  /** เริ่มแสดง Alert หนึ่งรายการ (เสียง + TTS + ตั้งเวลาปิดเอง) */
+  const playAlert = useCallback((payload: AlertEventPayload) => {
+    busyRef.current = true;
+    setCurrentAlert(payload);
+    setIsVisible(true);
+    currentAlertIdRef.current = payload.alertId;
 
-      // ยกเลิก timeout เก่า
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    // เล่นเสียง Alert Sound
+    const audio = new Audio(payload.soundUrl);
+    audio.volume = 0.8;
+    audio.play().catch(() => {/* autoplay policy */});
 
-      setCurrentAlert(payload);
-      setIsVisible(true);
-      currentAlertIdRef.current = payload.alertId;
+    // TTS (รอให้ animation เด้งขึ้นก่อน)
+    const shouldTTS = payload.ttsEnabled && !emergencyRef.current.ttsMuted;
 
-      // เล่นเสียง Alert Sound
-      const audio = new Audio(payload.soundUrl);
-      audio.volume = 0.8;
-      audio.play().catch(() => {/* autoplay policy */});
+    if (shouldTTS && "speechSynthesis" in window) {
+      setTimeout(() => {
+        const text = buildTTSText(payload);
+        const utter = new SpeechSynthesisUtterance(text);
+        utter.lang = "th-TH";
+        utter.rate = 0.9;
+        utter.pitch = 1.1;
+        utter.volume = 1.0;
+        speechRef.current = utter;
+        window.speechSynthesis.cancel(); // ยกเลิก TTS ที่ค้างอยู่
+        window.speechSynthesis.speak(utter);
+      }, 800);
+    }
 
-      // TTS
-      const shouldTTS = payload.ttsEnabled && !emergencyRef.current.ttsMuted;
-      const ttsDelay = 800; // รอให้ animation เด้งขึ้นก่อน
+    // durationSeconds ถูกคำนวณจากความยาวข้อความมาแล้วที่ Server (ดู src/lib/alert-duration.ts)
+    const displayMs = Math.max(3, payload.durationSeconds) * 1000;
 
-      if (shouldTTS && "speechSynthesis" in window) {
-        setTimeout(() => {
-          const text = buildTTSText(payload);
-          const utter = new SpeechSynthesisUtterance(text);
-          utter.lang = "th-TH";
-          utter.rate = 0.9;
-          utter.pitch = 1.1;
-          utter.volume = 1.0;
-          speechRef.current = utter;
-          window.speechSynthesis.cancel(); // ยกเลิก TTS ที่ค้างอยู่
-          window.speechSynthesis.speak(utter);
-        }, ttsDelay);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => finishRef.current(payload.alertId), displayMs);
+  }, []);
+
+  /** จบ Alert ปัจจุบัน -> ACK -> เล่นรายการถัดไปในคิว (ถ้ามี) */
+  const finishAlert = useCallback(
+    (alertId?: string) => {
+      const id = alertId ?? currentAlertIdRef.current;
+
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
       }
 
-      // ซ่อนหลังจาก duration
-      timeoutRef.current = setTimeout(() => {
-        hideAlert(payload.alertId);
-      }, (payload.durationSeconds + 1) * 1000);
+      setIsVisible(false);
+      window.speechSynthesis?.cancel();
+      currentAlertIdRef.current = null;
+
+      if (id) ackAlert(id);
+
+      // รอให้การ์ดเดิมจางหายก่อน แล้วจึงเริ่มรายการถัดไป
+      setTimeout(() => {
+        const next = queueRef.current.shift();
+
+        if (next) {
+          playRef.current(next);
+          return;
+        }
+
+        busyRef.current = false;
+        setCurrentAlert(null);
+      }, EXIT_MS);
     },
-    [hideAlert]
+    [ackAlert]
   );
+
+  useEffect(() => {
+    playRef.current = playAlert;
+    finishRef.current = finishAlert;
+  }, [playAlert, finishAlert]);
+
+  /**
+   * รับ Alert จาก SSE
+   * - ว่าง -> เล่นทันที
+   * - กำลังเล่นอยู่ -> ต่อคิว (ไม่ทับกัน ทำให้โดเนทพร้อมกันไม่หาย)
+   * - ซ้ำ (alertId เดิม) -> ข้าม (Server อาจส่งซ้ำได้จาก reconnect/ACK chain)
+   */
+  const enqueueAlert = useCallback((payload: AlertEventPayload) => {
+    if (emergencyRef.current.alertMuted) return;
+    if (currentAlertIdRef.current === payload.alertId) return;
+    if (queueRef.current.some((item) => item.alertId === payload.alertId)) return;
+
+    if (busyRef.current) {
+      if (queueRef.current.length < MAX_QUEUE) queueRef.current.push(payload);
+      return;
+    }
+
+    playRef.current(payload);
+  }, []);
 
   // เชื่อมต่อ SSE — ประกาศหลัง useCallback ทั้งหมด เพื่อให้ตัวแปรถูก declare ก่อนถูกใช้งาน
   useEffect(() => {
     function connect() {
-      // encodeURIComponent สำคัญมาก: ถ้า token มี "+" แล้วใส่ดิบ ๆ
+      // encodeURIComponent สำคัญมาก: ถ้า token มี "+" แล้วไม่ดิบ ๆ
       // ตัว "+" ใน query string จะถูกตีความเป็น "เว้นวรรค" → server เทียบ token ไม่ตรง (401)
       const es = new EventSource(`/api/alerts/stream?token=${encodeURIComponent(token)}`);
       eventSourceRef.current = es;
@@ -122,7 +173,7 @@ export default function OverlayClient({ token }: OverlayClientProps) {
       es.addEventListener("alert", (e) => {
         try {
           const payload: AlertEventPayload = JSON.parse(e.data);
-          showAlert(payload);
+          enqueueAlert(payload);
         } catch {
           console.error("[overlay] Failed to parse alert event");
         }
@@ -132,8 +183,11 @@ export default function OverlayClient({ token }: OverlayClientProps) {
         try {
           const status: EmergencyStatus = JSON.parse(e.data);
           setEmergency(status);
+
           if (status.alertMuted) {
-            hideAlert();
+            // ปิดฉุกเฉิน: ทิ้งคิวที่รออยู่ แล้วปิดการ์ดปัจจุบัน (พร้อม ACK กลับ Server)
+            queueRef.current = [];
+            finishRef.current();
           }
           if (status.ttsMuted) {
             window.speechSynthesis?.cancel();
@@ -154,7 +208,7 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     return () => {
       eventSourceRef.current?.close();
     };
-  }, [token, showAlert, hideAlert]);
+  }, [token, enqueueAlert]);
 
   return (
     <div className="fixed inset-x-0 bottom-0 flex justify-center pb-24 pointer-events-none">
@@ -236,3 +290,4 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     </div>
   );
 }
+
