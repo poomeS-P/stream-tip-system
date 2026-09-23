@@ -1,0 +1,2 @@
+# บังคับ LF สำหรับสคริปต์ shell (กัน CRLF จาก Windows ทำให้ entrypoint รันไม่ได้)
+*.sh text eol=lf

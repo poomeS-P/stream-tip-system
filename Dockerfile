@@ -51,16 +51,14 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
 ENV NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-pk_test_build_placeholder}
 
 # ตัวแปรที่ไม่ใช่ NEXT_PUBLIC_ จะถูกอ่านจาก runtime เสมอ (ไม่ inline)
-# → ใช้ placeholder เพื่อให้ผ่าน validation (zod) ตอน build เท่านั้น
-#   ไม่ใช่ค่าจริง ไม่ใช่ secret และไม่ติดไปกับ runtime stage (คนละ stage)
-ENV DATABASE_URL=postgresql://build_placeholder:build_placeholder@127.0.0.1:5432/build_placeholder?schema=public
-ENV ADMIN_TOKEN=build_time_placeholder_admin_token_0001
-ENV OVERLAY_TOKEN=build_time_placeholder_overlay_token_0001
-ENV STRIPE_SECRET_KEY=sk_test_build_time_placeholder
-ENV STRIPE_WEBHOOK_SECRET=whsec_build_time_placeholder
-
-# generate ซ้ำแบบ explicit เพื่อความชัดเจนว่า client ตรงกับ schema ปัจจุบัน
-RUN npx prisma generate \
+# → ใช้ placeholder เฉพาะใน RUN นี้ เพื่อให้ผ่าน validation (zod) ตอน build
+#   ไม่ตั้งเป็น ENV ของ image (ไม่ติด metadata + ไม่ขึ้น warning SecretsUsedInArgOrEnv)
+RUN export DATABASE_URL="postgresql://build_placeholder:build_placeholder@127.0.0.1:5432/build_placeholder?schema=public" \
+    && export ADMIN_TOKEN="build_time_placeholder_admin_token_0001" \
+    && export OVERLAY_TOKEN="build_time_placeholder_overlay_token_0001" \
+    && export STRIPE_SECRET_KEY="sk_test_build_time_placeholder" \
+    && export STRIPE_WEBHOOK_SECRET="whsec_build_time_placeholder" \
+    && npx prisma generate \
     && npm run build
 
 # ---------- 3) runtime ----------
@@ -83,9 +81,18 @@ COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/next.config.ts ./next.config.ts
 COPY --from=builder --chown=nextjs:nodejs /app/tsconfig.json ./tsconfig.json
 COPY --from=builder --chown=nextjs:nodejs /app/next-env.d.ts ./next-env.d.ts
+# entrypoint: รัน `prisma migrate deploy` (+ seed ครั้งแรก) ก่อนเริ่มเซิร์ฟเวอร์
+# ทำให้การสร้าง schema ของ production ไม่ขึ้นกับ setting ใน Dashboard อีก
+COPY --chown=nextjs:nodejs scripts/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x ./docker-entrypoint.sh
+# script ช่วยตรวจสอบ (เช่น scripts/verify-db-tables.mjs) ให้ใช้ใน Railway Shell ได้
+COPY --chown=nextjs:nodejs scripts ./scripts
 
 USER nextjs
 EXPOSE 3000
+
+# entrypoint จะรัน migrate/seed แล้ว exec ต่อเป็นเซิร์ฟเวอร์ (PID 1 = node)
+ENTRYPOINT ["./docker-entrypoint.sh"]
 
 # รัน node ตรง ๆ (ไม่ผ่าน npm) เพื่อให้ PID 1 รับ SIGTERM เองตามที่ Railway แนะนำ
 CMD ["node", "node_modules/next/dist/bin/next", "start"]

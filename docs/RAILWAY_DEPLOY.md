@@ -17,6 +17,8 @@
 |---|---|
 | `railway.json` | config-as-code: **builder DOCKERFILE** (ใช้ `Dockerfile` ที่ root) · pre-deploy `npx prisma migrate deploy` · healthcheck `/api/health` · restart ON_FAILURE (start command = CMD ใน image) |
 | `Dockerfile` | build แบบ reproducible: **node:24-slim → Node 24 + npm 11.x** · `npm ci` จาก lock เท่านั้น · `prisma generate` + `next build` · runtime รัน `next start` (อ่าน `PORT` ของแพลตฟอร์ม) |
+| `scripts/docker-entrypoint.sh` | **entrypoint** ที่รัน `npx prisma migrate deploy` (+ `npm run db:seed` ครั้งแรก) ก่อนเริ่มเซิร์ฟเวอร์ → สร้าง schema ให้ production อัตโนมัติ ไม่ต้องพึ่ง setting ใน Dashboard |
+| `scripts/verify-db-tables.mjs` | ตรวจว่าตารางใน DB ครบ (`node scripts/verify-db-tables.mjs`) — ใช้ได้ทั้งในเครื่องและ Railway Shell |
 | `prisma/migrations/20260923060000_init/` | migration เริ่มต้น (สร้างตารางครบจาก schema.prisma) — ใช้กับ DB เปล่าของ Railway |
 | `src/app/api/health/route.ts` | healthcheck (ตอบ 200 เสมอเมื่อแอปทำงาน + บอกสถานะ DB) |
 | `package.json` | `start` = `next start` (อ่าน `PORT` ของแพลตฟอร์ม) · `postinstall` = `prisma generate` · `typecheck` · `db:deploy` · `db:status` |
@@ -77,10 +79,39 @@ git check-ignore -v .env       # ต้องขึ้นว่า .gitignore �
 6. **ตรวจ pre-deploy command**: `Settings → Deploy → Pre-deploy Command` ต้องเป็น `npx prisma migrate deploy`
    (มาจาก `railway.json` — แก้ในหน้าเว็บจะเขียนทับ config-as-code)
 7. **Deploy** → ดู log: ต้องเห็น `prisma migrate deploy` ผ่านก่อน แล้ว `npm run start` ขึ้น
-8. **Seed ข้อมูลเริ่มต้นครั้งเดียว** (สร้าง SystemSetting + blocklist):
-   - เปิด Shell/Terminal ของ service แล้วรัน `npm run db:seed`
-   - หรือรันในเครื่องโดยชี้ `DATABASE_URL` ไปที่ Public URL ของ Railway
-   - (script เป็น idempotent — รันซ้ำจะข้ามถ้ามีอยู่แล้ว)
+8. **Seed ข้อมูลเริ่มต้น** — ไม่ต้องทำมือ: entrypoint จะรัน `npm run db:seed` ให้เองในรอบแรก (idempotent)
+   - ปิดได้ด้วย Variable `RUN_DB_SEED=0`
+   - ถ้าต้องการรันเอง: เปิด Shell/Terminal ของ service แล้วรัน `npm run db:seed`
+
+---
+
+## 4.1) การสร้าง schema ของ production (อัตโนมัติ)
+
+ทุกครั้งที่ container เริ่มทำงาน (deploy / restart) `scripts/docker-entrypoint.sh` จะรันตามลำดับ:
+
+1. `npx prisma migrate deploy` — สร้าง/อัปเดต schema จาก `prisma/migrations/`
+   (idempotent: ถ้าไม่มีอะไรค้างจะขึ้น `No pending migrations to apply.` แล้วไปต่อ)
+2. `npm run db:seed` — สร้าง `SystemSetting` เริ่มต้นถ้ายังไม่มี (ไม่ fatal; ปิดด้วย `RUN_DB_SEED=0`)
+3. `exec node node_modules/next/dist/bin/next start` — เริ่มเสิร์ฟเวอร์ (PID 1 = node รับ SIGTERM)
+
+- ถ้า **migrate ล้มเหลว** → container ไม่ให้บริการ และ deployment fail ทันที (ดูสาเหตุใน log บรรทัดที่ขึ้นต้น `[entrypoint]`)
+- `railway.json` ยังคงมี `preDeployCommand: npx prisma migrate deploy` เป็นกลไกเสริม
+  (เผื่อกรณี Service settings ใน Dashboard ถูกแก้ทับ config-as-code)
+- ❌ **ห้ามใช้ `prisma db push` กับ production** (ไม่บันทึกประวัติ migration และเสี่ยงข้อมูลเสีย)
+
+**ตรวจสอบหลัง deploy**
+```bash
+# 1) health — ต้องได้ database: "up"
+curl https://<domain>/api/health
+
+# 2) ตารางครบไหม — Railway → service → Shell
+node scripts/verify-db-tables.mjs
+# คาดหวัง: tables in public : AlertQueue, PaymentTransaction, SystemSetting, Tip, WebhookEventLog, _prisma_migrations
+#          OK : ตารางครบตามที่คาดหวัง
+
+# 3) สถานะ migration
+npx prisma migrate status     # ต้องขึ้น "Database schema is up to date!"
+```
 
 ---
 
@@ -124,6 +155,8 @@ git check-ignore -v .env       # ต้องขึ้นว่า .gitignore �
 | `Application failed to respond` | แอปไม่ฟังพอร์ตที่ Railway ให้ (hard-code พอร์ต) | ตรวจว่า start = `npm start` (ไม่มี `-p`) และห้ามตั้ง `PORT` เอง |
 | Healthcheck ไม่ผ่าน | env ไม่ครบ → zod throw ตอนบูต | ดู log แล้วเพิ่มตัวแปรให้ครบตามข้อ 2 |
 | `prisma migrate deploy` ล้ม | DB ปลายทางมีตารางอยู่แล้วแต่ไม่มีประวัติ migration | อย่าใช้ `db push` กับ production; ถ้ามีข้อมูลเดิมให้ `prisma migrate resolve --applied <name>` |
+| **`P2021 ... does not exist`** (ตารางใน DB หาย) | migration ยังไม่ถูกเรียกกับ DB ของ production | deploy image ใหม่ (entrypoint อยู่ใน image แล้ว) แล้วดู log ว่ามี `[entrypoint] prisma migrate deploy` + `All migrations have been successfully applied.` · ตรวจซ้ำด้วย `node scripts/verify-db-tables.mjs` |
+| seed ไม่ทำงาน (`tsx: not found`) | image ถูก prune devDependencies | image ปัจจุบันเก็บ `node_modules` ครบ (รวม `tsx`) — ถ้าจะ prune ต้องเปลี่ยนวิธี seed ก่อน |
 | เปิดเว็บแล้ว 500 ทุกหน้า | Prisma ต่อ DB ไม่ได้ | ตรวจ `DATABASE_URL` ว่าเป็น Reference Variable และ Postgres healthy |
 | Postgres SSL error | ใช้ URL public (`DATABASE_PUBLIC_URL`) | ใช้ `${{Postgres.DATABASE_URL}}` (internal network) |
 | Alert ไม่เด้งทั้งที่จ่ายแล้ว | secret ไม่ตรง / คนละบัญชี Stripe / OBS ชี้ URL เก่า | ดู log ของ Stripe endpoint (200 vs 400) + ตรวจ `NEXT_PUBLIC_APP_URL` |
