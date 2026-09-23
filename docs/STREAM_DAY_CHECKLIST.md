@@ -71,6 +71,27 @@
 - **ถ้าเจออาการผิดปกติ** (เช่น การ์ดขึ้นแวบเดียวแล้วหาย) → เติม `&alertdiag=1` ท้าย URL ของ source ชั่วคราว
   จะมีไทม์ไลน์มุมล่างซ้ายบอกว่า `play` / `queue +1` / `finish` / `idle` เกิดเมื่อไรและด้วย id ไหน → ส่งภาพมาได้เลย
 
+## 🎨 หน้าเว็บรับโดเนท (Smoke theme) — จุดที่ต้องตั้งค่าเอง
+
+หน้าเว็บผู้ชม (`/`, `/success`, `/cancel`) ใช้ธีมดำ-ควัน + การ์ดกระจก (glassmorphism) และดึงข้อมูลจริงจาก DB
+(ชื่อสตรีมเมอร์ · ยอดขั้นต่ำ · ผู้สนับสนุนล่าสุด · เป้าหมายเดือนนี้)
+
+| อยากเปลี่ยนอะไร | แก้ที่ |
+|---|---|
+| **ชื่อเว็บ/สตรีมเมอร์** (Navbar/Hero/Footer) | หน้า Admin → `streamerName` หรือ seed (`prisma/seed.ts`) |
+| **ข้อความ Hero** (เงินโดเนทไปทำอะไร) | `HERO_DESCRIPTION` ใน `src/app/page.tsx` |
+| **เป้าหมายต่อเดือน + progress bar** | Railway → Variables → `SUPPORT_GOAL_THB` (ค่าเริ่มต้น 5000 · ใส่ `0` = ซ่อน) |
+| **QR / PromptPay (โอนตรง)** | วางรูปที่ `public/promptpay-qr.png` + ตั้ง `NEXT_PUBLIC_PROMPTPAY_NAME` / `NEXT_PUBLIC_PROMPTPAY_ID` |
+| **ช่องทางติดต่อท้ายเว็บ** | `NEXT_PUBLIC_CONTACT_TWITCH` / `_DISCORD` / `_X` / `_EMAIL` (ไม่ใส่ = ไม่แสดง) |
+| **ยอดโดเนทขั้นต่ำ** | `SystemSetting.minTipAmount` (ค่าเริ่มต้น **1 บาท** ตาม migration `20260923120000_min_tip_amount_one_baht`) |
+| **ช่องทางชำระเงิน** | ใช้ Stripe Hosted Checkout (บัตร/PromptPay) — ช่องทาง "โอนตรง PromptPay QR" ยังปิดอยู่ (ต้องตั้งค่า QR + ต่อระบบตรวจยอดเองก่อน) |
+
+> ⚠️ Stripe บังคับยอดขั้นต่ำ **฿10 ต่อ 1 Checkout Session** (`amount_too_small`) — โค้ดจึงแยกเป็น 2 ชั้น:
+> ชั้นนโยบายเว็บ = `minTipAmount` (1 บาท) และชั้นช่องทาง = `PROVIDER_MINIMUM_AMOUNT` ใน `src/lib/payment/limits.ts`
+> หน้าเว็บจะแจ้งผู้ชมตรง ๆ ว่ายอด 1-9 บาท ต้องใช้ช่องทางโอนตรง (ยังไม่เปิด) เพื่อไม่ให้เจอ error แปลก ๆ
+
+> หมายเหตุ: หน้า Admin/Overlay ไม่ถูกแตะ — ธีมควันใช้เฉพาะหน้าเว็บรับโดเนทเท่านั้น
+
 ## 📌 สถานะที่ตกลงกันไว้
 
 - ยังใช้ Stripe **Test Mode** (ยังไม่เปลี่ยนเป็น Live) — เมื่อพร้อมค่อยเปลี่ยน `STRIPE_SECRET_KEY` + สร้าง webhook endpoint โหมด Live + อัปเดต `STRIPE_WEBHOOK_SECRET` แล้ว redeploy (ไม่ต้องแก้โค้ด)

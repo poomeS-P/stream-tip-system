@@ -96,7 +96,7 @@ model WebhookEventLog {
 model SystemSetting {
   id                  String   @id @default("default")
   streamerName        String   @default("Streamer")
-  minTipAmount        Decimal  @default(10.00) @db.Decimal(10, 2)
+  minTipAmount        Decimal  @default(1.00) @db.Decimal(10, 2)
   maxMessageLength    Int      @default(150)
   minAmountForTTS     Decimal  @default(20.00) @db.Decimal(10, 2)
   alertDurationSec    Int      @default(8)

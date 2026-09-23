@@ -5,6 +5,7 @@ import { env } from "@/lib/env";
 import { rateLimit } from "@/lib/rate-limit";
 import { filterContent, sanitizeName } from "@/lib/filter";
 import { getPaymentProvider } from "@/lib/payment";
+import { getProviderMinimumAmount } from "@/lib/payment/limits";
 
 const createTipSchema = z.object({
   donorName: z.string().min(1).max(50).optional(),
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // ดึง settings จาก DB
   const settings = await db.systemSetting.findUnique({ where: { id: "default" } });
-  const minAmount = settings ? Number(settings.minTipAmount) : 10;
+  const minAmount = Math.max(1, settings ? Number(settings.minTipAmount) : 1);
   const maxMsgLen = settings?.maxMessageLength ?? 150;
   const bannedWords = settings?.bannedWords ?? [];
   const blockEntire = settings?.blockEntireMessage ?? false;
@@ -61,6 +62,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (amount < minAmount) {
     return NextResponse.json(
       { error: `Minimum tip amount is ${minAmount} ${env.DEFAULT_CURRENCY}` },
+      { status: 422 }
+    );
+  }
+
+  // ผู้ให้บริการจ่ายเงินมีขั้นต่ำของตัวเอง (Stripe THB = 10 บาท)
+  // กันไว้ก่อนเรียก provider เพื่อไม่ให้ผู้ชมเจอ 502 "Payment provider error" ที่อ่านไม่รู้เรื่อง
+  const providerMinAmount = getProviderMinimumAmount(env.DEFAULT_CURRENCY);
+  if (amount < providerMinAmount) {
+    return NextResponse.json(
+      {
+        error: `ยอดต่ำเกินไปสำหรับช่องทางบัตร/PromptPay (ขั้นต่ำ ${providerMinAmount} ${env.DEFAULT_CURRENCY})`,
+        code: "amount_below_provider_minimum",
+      },
       { status: 422 }
     );
   }
@@ -104,7 +118,22 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // ลบ tip ที่ยังไม่ได้ชำระออก เพื่อความสะอาด
     await db.tip.delete({ where: { id: tip.id } }).catch(() => {});
     console.error("[tips] Failed to create checkout session:", err);
-    return NextResponse.json({ error: "Payment provider error" }, { status: 502 });
+
+    // แปลง error ที่รู้จักให้เป็นข้อความที่ผู้ชมเข้าใจ (เช่น ยอดต่ำกว่าขั้นต่ำของ Stripe)
+    const providerCode =
+      err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : null;
+
+    if (providerCode === "amount_too_small") {
+      return NextResponse.json(
+        {
+          error: `ยอดต่ำเกินไปสำหรับช่องทางบัตร/PromptPay (ขั้นต่ำ ${providerMinAmount} ${env.DEFAULT_CURRENCY})`,
+          code: providerCode,
+        },
+        { status: 422 }
+      );
+    }
+
+    return NextResponse.json({ error: "Payment provider error", code: providerCode }, { status: 502 });
   }
 
   // บันทึก PaymentTransaction

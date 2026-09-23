@@ -1,4 +1,5 @@
 import Link from "next/link";
+import SmokeLayers from "@/components/donate/SmokeLayers";
 import { db } from "@/lib/db";
 
 /**
@@ -80,16 +81,20 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
   const view = DISPLAY[state];
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-green-50 to-emerald-100 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 text-center">
-        <div className="text-6xl mb-4">{view.emoji}</div>
-        <h1 className="text-2xl font-bold text-gray-800 mb-2">{view.title}</h1>
-        <p className="text-gray-500 mb-6">{view.detail}</p>
+    <main className="smoke-site flex items-center justify-center p-4">
+      <SmokeLayers />
+
+      <div className="smoke-card w-full max-w-md rounded-3xl p-8 text-center">
+        <div className="mb-4 text-6xl" aria-hidden="true">
+          {view.emoji}
+        </div>
+        <h1 className="mb-2 text-2xl font-bold tracking-tight text-white">{view.title}</h1>
+        <p className="mb-6 text-sm leading-relaxed text-white/70">{view.detail}</p>
         <Link
           href="/"
-          className="inline-block px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition"
+          className="smoke-btn inline-block rounded-2xl px-6 py-3 font-semibold text-white"
         >
-          ส่งทิปอีกครั้ง
+          กลับไปหน้าโดเนท
         </Link>
       </div>
     </main>

@@ -14,7 +14,7 @@ async function main() {
       data: {
         id: "default",
         streamerName: "Streamer",
-        minTipAmount: 10.0,
+        minTipAmount: 1.0,
         maxMessageLength: 150,
         minAmountForTTS: 20.0,
         alertDurationSec: 8,

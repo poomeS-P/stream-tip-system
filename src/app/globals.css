@@ -22,5 +22,191 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), "Noto Sans Thai", "Leelawadee UI", "Sarabun", "Segoe UI",
+    system-ui, sans-serif;
 }
+
+/* ============================================================
+   DONATE SITE — SMOKE THEME
+   ------------------------------------------------------------
+   ใช้เฉพาะหน้าเว็บรับโดเนท (.smoke-site) + success/cancel
+   ไม่กระทบหน้า overlay / admin ที่มีธีมของตัวเอง
+
+   หลักการ:
+   - Dark theme + โทนดำ/เทาควัน/ขาว + ม่วง-ฟ้าเรืองแสงเล็กน้อย
+   - ควันทำจาก layer ของ radial-gradient ที่เลื่อนช้า ๆ (transform/opacity เท่านั้น)
+   - การ์ดใช้ glassmorphism (โปร่ง + backdrop blur + เส้นขอบบาง)
+   - prefers-reduced-motion = ปิดอนิเมชันควันทั้งหมด
+   ============================================================ */
+
+@layer components {
+  .smoke-site {
+    --smoke-bg: #07080c;
+    --smoke-ink: #eaeef7;
+    --smoke-muted: rgba(234, 238, 247, 0.66);
+    --smoke-line: rgba(255, 255, 255, 0.12);
+    --smoke-accent: #a78bfa;
+    --smoke-accent-2: #67e8f9;
+
+    position: relative;
+    isolation: isolate;
+    min-height: 100dvh;
+    overflow-x: clip;
+    color: var(--smoke-ink);
+    background:
+      radial-gradient(1200px 720px at 10% -12%, rgba(124, 58, 237, 0.30), transparent 62%),
+      radial-gradient(900px 620px at 92% 4%, rgba(34, 211, 238, 0.16), transparent 62%),
+      radial-gradient(760px 520px at 50% 112%, rgba(148, 163, 184, 0.14), transparent 66%),
+      linear-gradient(180deg, #07080c 0%, #0a0c12 46%, #07080c 100%);
+  }
+
+  /* --- ชั้นควัน: gradient นุ่ม ๆ 2-3 ชั้น เลื่อนช้ามาก --- */
+  .smoke-layer {
+    position: absolute;
+    inset: -18% -12%;
+    z-index: -1;
+    pointer-events: none;
+    filter: blur(46px);
+    will-change: transform;
+  }
+
+  .smoke-layer--a {
+    opacity: 0.62;
+    background:
+      radial-gradient(36% 42% at 22% 28%, rgba(226, 232, 240, 0.40), transparent 70%),
+      radial-gradient(28% 34% at 72% 18%, rgba(196, 181, 253, 0.30), transparent 72%);
+    animation: smoke-drift-a 48s ease-in-out infinite alternate;
+  }
+
+  .smoke-layer--b {
+    opacity: 0.48;
+    background:
+      radial-gradient(30% 38% at 78% 66%, rgba(226, 232, 240, 0.30), transparent 72%),
+      radial-gradient(34% 30% at 30% 76%, rgba(103, 232, 249, 0.22), transparent 74%);
+    animation: smoke-drift-b 64s ease-in-out infinite alternate;
+  }
+
+  .smoke-layer--c {
+    opacity: 0.36;
+    background:
+      radial-gradient(46% 30% at 50% 52%, rgba(226, 232, 240, 0.22), transparent 76%);
+    animation: smoke-drift-c 82s ease-in-out infinite alternate;
+  }
+
+  @keyframes smoke-drift-a {
+    from { transform: translate3d(-3%, -2%, 0) scale(1.04) rotate(-1.2deg); }
+    to   { transform: translate3d(4%, 3%, 0) scale(1.16) rotate(1.4deg); }
+  }
+
+  @keyframes smoke-drift-b {
+    from { transform: translate3d(3%, 2%, 0) scale(1.10) rotate(1deg); }
+    to   { transform: translate3d(-4%, -3%, 0) scale(1.02) rotate(-1.6deg); }
+  }
+
+  @keyframes smoke-drift-c {
+    from { transform: translate3d(-2%, 3%, 0) scale(1.02); }
+    to   { transform: translate3d(3%, -2%, 0) scale(1.14); }
+  }
+
+  /* --- การ์ดกระจก (glassmorphism) --- */
+  .smoke-card {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.03));
+    border: 1px solid var(--smoke-line);
+    backdrop-filter: blur(16px) saturate(1.15);
+    -webkit-backdrop-filter: blur(16px) saturate(1.15);
+    box-shadow:
+      0 24px 70px -28px rgba(0, 0, 0, 0.9),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  }
+
+  .smoke-chip {
+    transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease, color 160ms ease;
+  }
+
+  .smoke-chip[aria-pressed="true"] {
+    background: linear-gradient(180deg, rgba(167, 139, 250, 0.30), rgba(167, 139, 250, 0.14));
+    border-color: rgba(196, 181, 253, 0.75);
+    color: #ffffff;
+    box-shadow: 0 0 22px -6px rgba(167, 139, 250, 0.75);
+  }
+
+  .smoke-chip:hover:not([aria-pressed="true"]) {
+    border-color: rgba(196, 181, 253, 0.45);
+  }
+
+  .smoke-chip:active {
+    transform: translateY(1px) scale(0.99);
+  }
+
+  /* --- ปุ่มหลัก: เด่น + glow + hover --- */
+  .smoke-btn {
+    position: relative;
+    background: linear-gradient(135deg, #7c3aed 0%, #a855f7 46%, #22d3ee 140%);
+    box-shadow: 0 12px 34px -12px rgba(139, 92, 246, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.10) inset;
+    transition: transform 180ms ease, box-shadow 220ms ease, filter 220ms ease;
+  }
+
+  .smoke-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    box-shadow: 0 18px 44px -12px rgba(139, 92, 246, 1), 0 0 0 1px rgba(255, 255, 255, 0.16) inset;
+  }
+
+  .smoke-btn:active:not(:disabled) {
+    transform: translateY(0) scale(0.995);
+  }
+
+  .smoke-btn:disabled {
+    filter: saturate(0.55) brightness(0.75);
+    box-shadow: none;
+  }
+
+  /* --- ช่องกรอก / ตัวเลือก --- */
+  .smoke-input {
+    background: rgba(9, 11, 16, 0.72);
+    border: 1px solid var(--smoke-line);
+    transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+  }
+
+  .smoke-input::placeholder {
+    color: rgba(234, 238, 247, 0.42);
+  }
+
+  .smoke-input:hover:not(:disabled) {
+    border-color: rgba(255, 255, 255, 0.22);
+  }
+
+  .smoke-input:focus-visible {
+    outline: none;
+    border-color: rgba(196, 181, 253, 0.85);
+    box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.28);
+  }
+
+  .smoke-input:disabled {
+    opacity: 0.55;
+  }
+
+  /* โฟกัสที่มองเห็นได้ชัดทั้งเว็บ (คีย์บอร์ด) */
+  .smoke-site :focus-visible {
+    outline: 2px solid rgba(196, 181, 253, 0.9);
+    outline-offset: 2px;
+  }
+
+  .smoke-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+  }
+}
+
+/* ผู้ใช้ที่ปิดการเคลื่อนไหว -> ปิดอนิเมชันควันทั้งหมด */
+@media (prefers-reduced-motion: reduce) {
+  .smoke-layer {
+    animation: none !important;
+  }
+
+  .smoke-chip,
+  .smoke-btn {
+    transition: none !important;
+  }
+}
+
