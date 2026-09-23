@@ -1,0 +1,113 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  EXPIRED
+}
+
+enum AlertStatus {
+  PENDING      // อยู่ในคิวรอแสดงผล
+  PLAYING      // กำลังแสดงผลอยู่บน OBS
+  COMPLETED    // แสดงผลเสร็จเรียบร้อย
+  SKIPPED      // ถูกสตรีมเมอร์กดข้าม
+  MUTED        // เล่นเฉพาะภาพแต่ปิดเสียง/TTS (หากตรวจพบคำต้องสงสัย)
+  BLOCKED      // ถูกระบบคัดกรองระงับอัตโนมัติ
+}
+
+model Tip {
+  id              String         @id @default(uuid())
+  donorName       String         @db.VarChar(50)
+  rawDonorName    String         @db.VarChar(50)
+  isAnonymous     Boolean        @default(false)
+  amount          Decimal        @db.Decimal(10, 2)
+  currency        String         @default("THB") @db.VarChar(3)
+  message         String?        @db.VarChar(255)
+  cleanMessage    String?        @db.VarChar(255)
+  hasFilteredWord Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  paymentTransaction PaymentTransaction?
+  alertQueue         AlertQueue?
+
+  @@index([createdAt])
+}
+
+model PaymentTransaction {
+  id              String        @id @default(uuid())
+  tipId           String        @unique
+  tip             Tip           @relation(fields: [tipId], references: [id], onDelete: Cascade)
+  
+  provider        String        @db.VarChar(30)
+  providerTxId    String?       @unique               // Provider Session ID / Charge ID
+  amountCharged   Decimal       @db.Decimal(10, 2)
+  currency        String        @db.VarChar(3)
+  status          PaymentStatus @default(PENDING)
+  checkoutUrl     String?       @db.Text
+  paidAt          DateTime?
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([providerTxId])
+  @@index([status])
+}
+
+model AlertQueue {
+  id              String       @id @default(uuid())
+  tipId           String       @unique
+  tip             Tip          @relation(fields: [tipId], references: [id], onDelete: Cascade)
+  
+  status          AlertStatus  @default(PENDING)
+  priority        Int          @default(0)
+  soundUrl        String?      @db.VarChar(255)
+  durationSeconds Int          @default(8)
+  ttsEnabled      Boolean      @default(true)
+  
+  displayedAt     DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@index([status, priority, createdAt])
+}
+
+model WebhookEventLog {
+  id            String    @id @default(uuid())
+  provider      String    @db.VarChar(30)
+  eventId       String    @unique                      // Unique constraint enforces idempotency at DB level
+  eventType     String    @db.VarChar(100)
+  payloadJson   Json
+  processed     Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+
+  @@index([eventId])
+}
+
+model SystemSetting {
+  id                  String   @id @default("default")
+  streamerName        String   @default("Streamer")
+  minTipAmount        Decimal  @default(10.00) @db.Decimal(10, 2)
+  maxMessageLength    Int      @default(150)
+  minAmountForTTS     Decimal  @default(20.00) @db.Decimal(10, 2)
+  alertDurationSec    Int      @default(8)
+  
+  // Emergency Controls
+  emergencyAlertMuted Boolean  @default(false)         // สั่งปิดการแสดง Alert ทันที
+  emergencyTTSMuted   Boolean  @default(false)         // สั่งปิด TTS ทันที
+  
+  // Content Moderation
+  bannedWords         String[] @default([])            // รายการคำต้องห้าม
+  blockEntireMessage  Boolean  @default(false)         // ซ่อนทั้งข้อความหรือทำเป็นดอกจัน
+  
+  updatedAt           DateTime @updatedAt
+}

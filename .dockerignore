@@ -1,0 +1,11 @@
+node_modules
+.next
+.git
+# ห้ามส่งไฟล์ .env จริงเข้า image build context (กัน secret ติดไปกับ layer)
+.env*
+!.env.example
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.vscode
+.idea
