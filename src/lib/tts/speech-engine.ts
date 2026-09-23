@@ -35,6 +35,12 @@ export interface TtsConfig {
   pitch: number;
   /** true = แสดงแผงรายชื่อเสียงบนจอ (?ttsdiag=1) */
   diag: boolean;
+  /**
+   * false = ปิดการอ่านเสียงของ "หน้าต่างนี้" (?tts=0)
+   * ใช้เมื่อต้องรันคู่กับโหมดอ่านเสียงเท่านั้น (Edge) เพื่อไม่ให้อ่านซ้ำสองเสียง
+   * — ไม่กระทบเสียง Alert (alert.mp3) และไม่กระทบค่าตั้งฝั่ง Server (ttsEnabled/minAmountForTTS)
+   */
+  enabled: boolean;
 }
 
 /** อ่านค่าปรับจาก query string ของหน้า Overlay */
@@ -51,6 +57,7 @@ export function resolveTtsConfig(search: string): TtsConfig {
         ? pitch
         : DEFAULT_TTS_PITCH,
     diag: params.get("ttsdiag") === "1",
+    enabled: params.get("tts") !== "0",
   };
 }
 
@@ -142,6 +149,7 @@ export function buildVoiceDiag(
     `เสียงทั้งหมด: ${voices.length} · เสียงไทย: ${thai.length}`,
     `เลือกใช้: ${picked ? `${picked.name} [${picked.lang}]` : "— (ไม่มีเสียงไทยในเครื่องนี้)"}`,
     `rate ${config.rate} · pitch ${config.pitch}${config.voiceName ? ` · บังคับชื่อ "${config.voiceName}"` : ""}`,
+    `สถานะอ่านเสียงของหน้าต่างนี้: ${config.enabled ? "เปิด" : "ปิด (?tts=0)"}`,
   ];
 
   if (thai.length === 0) {

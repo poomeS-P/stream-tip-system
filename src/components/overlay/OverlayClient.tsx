@@ -87,6 +87,7 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     rate: DEFAULT_TTS_RATE,
     pitch: DEFAULT_TTS_PITCH,
     diag: false,
+    enabled: true,
   });
   // รายชื่อเสียงทั้งหมดของเครื่องนี้ + เสียงไทยที่เลือกไว้
   const ttsVoicesRef = useRef<SpeechVoiceInfo[]>([]);
@@ -232,20 +233,21 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     // - เลือกเสียงไทยผู้หญิง/ธรรมชาติจากรายชื่อเสียงจริงของเครื่อง (ดู src/lib/tts/voice.ts)
     // - อ่านตัวเลขเป็นคำไทย + ตัด emoji/★/URL (ดู src/lib/tts/speech-text.ts)
     // - rate/pitch กลาง ๆ นุ่มนวล ปรับได้ท้าย URL (?ttsrate= ?ttspitch= ?ttsvoice=)
-    const shouldTTS = payload.ttsEnabled && !emergencyRef.current.ttsMuted;
+    // - ปิดการอ่านเสียงของหน้าต่างนี้ได้ด้วย ?tts=0 (ใช้เมื่อให้หน้าต่างอื่น เช่น Edge เป็นคนอ่าน)
+    const ttsConfig = ttsConfigRef.current;
+    const shouldTTS = payload.ttsEnabled && ttsConfig.enabled && !emergencyRef.current.ttsMuted;
 
     if (shouldTTS && "speechSynthesis" in window) {
-      const config = ttsConfigRef.current;
       const plan = planSpeech(
         { donorName: payload.donorName, amount: payload.amount, message: payload.message },
         ttsVoicesRef.current,
-        config
+        ttsConfig
       );
 
       logDiag(`tts "${plan.text}" → ${plan.voiceName ?? "default voice"}`);
 
       setTimeout(() => {
-        speechRef.current = speakText(window.speechSynthesis, plan.text, plan.voice, config);
+        speechRef.current = speakText(window.speechSynthesis, plan.text, plan.voice, ttsConfig);
       }, 800);
     }
 
