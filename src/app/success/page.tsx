@@ -1,5 +1,4 @@
 import Link from "next/link";
-import SmokeLayers from "@/components/donate/SmokeLayers";
 import { db } from "@/lib/db";
 
 /**
@@ -81,18 +80,18 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
   const view = DISPLAY[state];
 
   return (
-    <main className="smoke-site flex items-center justify-center p-4">
-      <SmokeLayers />
-
-      <div className="smoke-card w-full max-w-md rounded-3xl p-8 text-center">
-        <div className="mb-4 text-6xl" aria-hidden="true">
+    <main className="flex min-h-dvh items-center justify-center bg-white px-5 py-14 sm:px-6">
+      <div className="w-full max-w-[440px] text-center">
+        <div className="text-[44px]" aria-hidden="true">
           {view.emoji}
         </div>
-        <h1 className="mb-2 text-2xl font-bold tracking-tight text-white">{view.title}</h1>
-        <p className="mb-6 text-sm leading-relaxed text-white/70">{view.detail}</p>
+
+        <h1 className="mt-4 text-[22px] font-bold tracking-tight text-ink">{view.title}</h1>
+        <p className="mt-3 text-[14px] leading-relaxed text-ink-soft">{view.detail}</p>
+
         <Link
           href="/"
-          className="smoke-btn inline-block rounded-2xl px-6 py-3 font-semibold text-white"
+          className="pay-btn mt-8 inline-block rounded-[12px] px-6 py-3 text-[15px] font-semibold"
         >
           กลับไปหน้าโดเนท
         </Link>
@@ -100,4 +99,3 @@ export default async function SuccessPage({ searchParams }: SuccessPageProps) {
     </main>
   );
 }
-

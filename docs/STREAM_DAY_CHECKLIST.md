@@ -71,26 +71,31 @@
 - **ถ้าเจออาการผิดปกติ** (เช่น การ์ดขึ้นแวบเดียวแล้วหาย) → เติม `&alertdiag=1` ท้าย URL ของ source ชั่วคราว
   จะมีไทม์ไลน์มุมล่างซ้ายบอกว่า `play` / `queue +1` / `finish` / `idle` เกิดเมื่อไรและด้วย id ไหน → ส่งภาพมาได้เลย
 
-## 🎨 หน้าเว็บรับโดเนท (Smoke theme) — จุดที่ต้องตั้งค่าเอง
+## 🎨 หน้าเว็บรับโดเนท (ธีมขาว มินิมอล) — จุดที่ต้องตั้งค่าเอง
 
-หน้าเว็บผู้ชม (`/`, `/success`, `/cancel`) ใช้ธีมดำ-ควัน + การ์ดกระจก (glassmorphism) และดึงข้อมูลจริงจาก DB
-(ชื่อสตรีมเมอร์ · ยอดขั้นต่ำ · ผู้สนับสนุนล่าสุด · เป้าหมายเดือนนี้)
+หน้าเว็บผู้ชม (`/`, `/success`, `/cancel`) ใช้ธีมขาวสะอาด: พื้นขาว · เส้นขอบบาง 1px · accent เดียว `#4f46e5`
+ไม่มี gradient / เงาหนัก / องค์ประกอบเกินจำเป็น — เหลือคอลัมน์เดียวกลางหน้า (หัวข้อ → ชื่อ → จำนวนเงิน → ข้อความ → ปุ่มจ่ายเงิน)
 
 | อยากเปลี่ยนอะไร | แก้ที่ |
 |---|---|
-| **ชื่อเว็บ/สตรีมเมอร์** (Navbar/Hero/Footer) | หน้า Admin → `streamerName` หรือ seed (`prisma/seed.ts`) |
-| **ข้อความ Hero** (เงินโดเนทไปทำอะไร) | `HERO_DESCRIPTION` ใน `src/app/page.tsx` |
-| **เป้าหมายต่อเดือน + progress bar** | Railway → Variables → `SUPPORT_GOAL_THB` (ค่าเริ่มต้น 5000 · ใส่ `0` = ซ่อน) |
-| **QR / PromptPay (โอนตรง)** | วางรูปที่ `public/promptpay-qr.png` + ตั้ง `NEXT_PUBLIC_PROMPTPAY_NAME` / `NEXT_PUBLIC_PROMPTPAY_ID` |
-| **ช่องทางติดต่อท้ายเว็บ** | `NEXT_PUBLIC_CONTACT_TWITCH` / `_DISCORD` / `_X` / `_EMAIL` (ไม่ใส่ = ไม่แสดง) |
-| **ยอดโดเนทขั้นต่ำ** | `SystemSetting.minTipAmount` (ค่าเริ่มต้น **1 บาท** ตาม migration `20260923120000_min_tip_amount_one_baht`) |
-| **ช่องทางชำระเงิน** | ใช้ Stripe Hosted Checkout (บัตร/PromptPay) — ช่องทาง "โอนตรง PromptPay QR" ยังปิดอยู่ (ต้องตั้งค่า QR + ต่อระบบตรวจยอดเองก่อน) |
+| **ยอดโดเนทขั้นต่ำ** | หน้า Admin → `minTipAmount` (ค่าเริ่มต้น **1 บาท** ตาม migration `20260923120000_min_tip_amount_one_baht`) |
+| **ความยาวข้อความสูงสุด** | หน้า Admin → `maxMessageLength` (ค่าเริ่มต้น 150 ตัวอักษร) |
+| **หัวข้อ/คำอธิบายบนหน้า** | `src/app/page.tsx` (H1 “ร่วมสนับสนุน” + ข้อความใต้หัวข้อ) |
+| **จำนวนเงินที่แนะนำ (10/20/50/100/300)** | `AMOUNT_PRESETS` ใน `src/components/tip/TipForm.tsx` |
+| **สี accent / ระยะห่าง** | token ใน `@theme` ที่ `src/app/globals.css` |
+| **ฟอนต์ไทย** | `Noto_Sans_Thai` ใน `src/app/layout.tsx` |
+| **ช่องทางชำระเงิน** | Stripe Hosted Checkout (บัตร/PromptPay) — ลิงก์จ่ายเงินสร้างจาก `POST /api/tips` |
 
 > ⚠️ Stripe บังคับยอดขั้นต่ำ **฿10 ต่อ 1 Checkout Session** (`amount_too_small`) — โค้ดจึงแยกเป็น 2 ชั้น:
-> ชั้นนโยบายเว็บ = `minTipAmount` (1 บาท) และชั้นช่องทาง = `PROVIDER_MINIMUM_AMOUNT` ใน `src/lib/payment/limits.ts`
-> หน้าเว็บจะแจ้งผู้ชมตรง ๆ ว่ายอด 1-9 บาท ต้องใช้ช่องทางโอนตรง (ยังไม่เปิด) เพื่อไม่ให้เจอ error แปลก ๆ
+> ชั้นนโยบายเว็บ = `minTipAmount` และชั้นช่องทาง = `PROVIDER_MINIMUM_AMOUNT` ใน `src/lib/payment/limits.ts`
+> ฟอร์มแสดงข้อความไทยตรง ๆ เมื่อยอดต่ำกว่านั้น และปุ่ม “จ่ายเงิน” จะ disabled จนกว่าข้อมูลสำคัญจะครบ
 
-> หมายเหตุ: หน้า Admin/Overlay ไม่ถูกแตะ — ธีมควันใช้เฉพาะหน้าเว็บรับโดเนทเท่านั้น
+> 🔴 **ตรวจโหมดคีย์ก่อนทดสอบจ่ายเงินทุกครั้ง:** `STRIPE_SECRET_KEY` ที่ใช้ต้องขึ้นต้นด้วย `sk_test_` / `rk_test_`
+> ถ้าเป็น `sk_live_` / `rk_live_` = **ตัดเงินจริงทันที** (ตรวจทั้งไฟล์ `.env` ในเครื่อง และ Variables บน Railway)
+> และ `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (`pk_test_` / `pk_live_`) ต้องเป็นโหมดเดียวกับ secret key เสมอ
+
+> หมายเหตุ: หน้า Admin/Overlay ไม่ถูกแตะ — ธีมขาวใช้เฉพาะหน้าเว็บรับโดเนทเท่านั้น
+> ส่วนเป้าหมายต่อเดือน · รายชื่อผู้สนับสนุนล่าสุด · การ์ด PromptPay QR ถูกตัดออกจากหน้าเว็บแล้ว (เหลือเฉพาะฟอร์มโดเนท)
 
 ## 📌 สถานะที่ตกลงกันไว้
 

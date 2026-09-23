@@ -1,20 +1,20 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+/**
+ * ฟอนต์หลักของเว็บ — Noto Sans Thai (variable font, subset ไทย)
+ * self-host ผ่าน next/font/google → เบราว์เซอร์ไม่ยิง request ไป Google เอง
+ */
+const notoSansThai = Noto_Sans_Thai({
+  variable: "--font-thai",
+  subsets: ["thai", "latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Stream Tip",
-  description: "ส่งทิปให้สตรีมเมอร์",
+  title: "ร่วมสนับสนุน",
+  description: "ขอบคุณสำหรับการสนับสนุนของคุณ",
 };
 
 export default function RootLayout({
@@ -23,12 +23,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="th">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
+    <html lang="th" className={notoSansThai.variable}>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }
