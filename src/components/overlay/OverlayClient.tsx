@@ -3,6 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AlertEventPayload, EmergencyStatus } from "@/types";
 import SmokeBackdrop from "./SmokeBackdrop";
+import {
+  DEFAULT_TTS_PITCH,
+  DEFAULT_TTS_RATE,
+  buildVoiceDiag,
+  loadAvailableVoices,
+  planSpeech,
+  resolveTtsConfig,
+  speakText,
+  type TtsConfig,
+} from "@/lib/tts/speech-engine";
+import { pickThaiVoice, type SpeechVoiceInfo } from "@/lib/tts/voice";
 
 interface OverlayClientProps {
   token: string;
@@ -67,6 +78,23 @@ export default function OverlayClient({ token }: OverlayClientProps) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // ---------- ระบบเสียงอ่าน (TTS) ----------
+  // ค่าปรับอ่านจาก URL (?ttsvoice= ?ttsrate= ?ttspitch= ?ttsdiag=1) — เก็บใน ref
+  // เพื่อให้ useCallback ที่ถูกสร้างครั้งเดียวอ่านค่าใหม่ได้เสมอ
+  const ttsConfigRef = useRef<TtsConfig>({
+    voiceName: null,
+    rate: DEFAULT_TTS_RATE,
+    pitch: DEFAULT_TTS_PITCH,
+    diag: false,
+  });
+  // รายชื่อเสียงทั้งหมดของเครื่องนี้ + เสียงไทยที่เลือกไว้
+  const ttsVoicesRef = useRef<SpeechVoiceInfo[]>([]);
+  const ttsVoiceRef = useRef<SpeechVoiceInfo | null>(null);
+  // บรรทัดสรุปสำหรับแผง ?ttsdiag=1 (เก็บใน ref แล้วให้ interval ดึงไปแสดง — กัน pattern setState ใน effect)
+  const ttsDiagLinesRef = useRef<string[]>([]);
+  const [ttsDiagLines, setTtsDiagLines] = useState<string[]>([]);
+  const [showTtsDiag, setShowTtsDiag] = useState(false);
   // กรอบข้อความที่ควันล้อมรอบ (เอนจินวัดขนาดจริงจาก element นี้)
   const textRef = useRef<HTMLDivElement | null>(null);
 
@@ -104,6 +132,59 @@ export default function OverlayClient({ token }: OverlayClientProps) {
   useEffect(() => {
     emergencyRef.current = emergency;
   }, [emergency]);
+
+  /**
+   * อ่านค่าปรับเสียงจาก URL + โหลดรายชื่อเสียงของเครื่องนี้
+   * (โหลดซ้ำเมื่อเบราว์เซอร์ยิง "voiceschanged" เช่นหลังติดตั้งเสียงใหม่)
+   * ไม่แตะตรรกะคิว/ACK — แค่เตรียม "เสียงที่จะใช้อ่าน" ให้พร้อม
+   */
+  useEffect(() => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+
+    const config = resolveTtsConfig(window.location.search);
+    ttsConfigRef.current = config;
+
+    const synth = window.speechSynthesis;
+    let cancelled = false;
+
+    const refresh = async (): Promise<void> => {
+      const voices = await loadAvailableVoices(synth);
+      if (cancelled) return;
+
+      const picked = pickThaiVoice(voices, config.voiceName);
+
+      ttsVoicesRef.current = voices;
+      ttsVoiceRef.current = picked;
+
+      const lines = buildVoiceDiag(voices, config, picked);
+      ttsDiagLinesRef.current = lines;
+      lines.forEach((line) => logDiag(`tts ${line}`));
+    };
+
+    void refresh();
+
+    const handleVoicesChanged = (): void => {
+      void refresh();
+    };
+
+    synth.addEventListener("voiceschanged", handleVoicesChanged);
+    return () => {
+      cancelled = true;
+      synth.removeEventListener("voiceschanged", handleVoicesChanged);
+    };
+  }, [logDiag]);
+
+  // แผงรายชื่อเสียง (?ttsdiag=1) — ดึงค่าไปแสดงเป็นช่วง ๆ เหมือนแผงไทม์ไลน์ด้านล่าง
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("ttsdiag") !== "1") return;
+
+    const timer = setInterval(() => {
+      setTtsDiagLines([...ttsDiagLinesRef.current]);
+      setShowTtsDiag(true);
+    }, 500);
+
+    return () => clearInterval(timer);
+  }, []);
 
   /** ACK กลับ Server พร้อม Overlay Token (แจ้งว่าแสดงจบแล้ว -> Server จะส่งรายการถัดไปในคิว) */
   const ackAlert = useCallback(
@@ -148,19 +229,23 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     audio.play().catch(() => {/* autoplay policy */});
 
     // TTS (รอให้ animation เด้งขึ้นก่อน)
+    // - เลือกเสียงไทยผู้หญิง/ธรรมชาติจากรายชื่อเสียงจริงของเครื่อง (ดู src/lib/tts/voice.ts)
+    // - อ่านตัวเลขเป็นคำไทย + ตัด emoji/★/URL (ดู src/lib/tts/speech-text.ts)
+    // - rate/pitch กลาง ๆ นุ่มนวล ปรับได้ท้าย URL (?ttsrate= ?ttspitch= ?ttsvoice=)
     const shouldTTS = payload.ttsEnabled && !emergencyRef.current.ttsMuted;
 
     if (shouldTTS && "speechSynthesis" in window) {
+      const config = ttsConfigRef.current;
+      const plan = planSpeech(
+        { donorName: payload.donorName, amount: payload.amount, message: payload.message },
+        ttsVoicesRef.current,
+        config
+      );
+
+      logDiag(`tts "${plan.text}" → ${plan.voiceName ?? "default voice"}`);
+
       setTimeout(() => {
-        const text = buildTTSText(payload);
-        const utter = new SpeechSynthesisUtterance(text);
-        utter.lang = "th-TH";
-        utter.rate = 0.9;
-        utter.pitch = 1.1;
-        utter.volume = 1.0;
-        speechRef.current = utter;
-        window.speechSynthesis.cancel(); // ยกเลิก TTS ที่ค้างอยู่
-        window.speechSynthesis.speak(utter);
+        speechRef.current = speakText(window.speechSynthesis, plan.text, plan.voice, config);
       }, 800);
     }
 
@@ -388,6 +473,12 @@ export default function OverlayClient({ token }: OverlayClientProps) {
       {showDiag && (
         <pre className="fixed bottom-2 left-2 z-50 max-w-[620px] whitespace-pre-wrap rounded bg-black/75 p-2 text-left text-[11px] leading-tight text-lime-300">
           {diagLines.join("\n")}
+        </pre>
+      )}
+      {/* แผงรายชื่อเสียงอ่าน — แสดงเฉพาะเมื่อเติม ?ttsdiag=1 ท้าย URL */}
+      {showTtsDiag && (
+        <pre className="fixed right-2 bottom-2 z-50 max-w-[560px] whitespace-pre-wrap rounded bg-black/75 p-2 text-left text-[11px] leading-tight text-sky-300">
+          {ttsDiagLines.join("\n")}
         </pre>
       )}
     </div>

@@ -360,13 +360,31 @@ npx tsx scripts/e2e/06-sse-client.ts --no-token
 
 | ส่วน | ตรวจอย่างไร | Expected |
 |---|---|---|
-| เสียง Alert | ฟังจาก OBS Browser Source (หรือ browser เปิด `/overlay?token=...`) | ได้ยินเสียง alert ดังเมื่อการ์ดโผล่ |
+| เสียง Alert | ฟังจาก OBS Browser Source (หรือ browser เปิด `/overlay?token=...`) | ได้ยินเสียง alert ดังเมื่อการ์ดโผล่ (ต้องมี `public/alerts/alert.mp3`) |
 | TTS | ฟังเสียงอ่านชื่อ + ยอด + ข้อความ (Web Speech API, `lang=th-TH`) | อ่านข้อความถูกต้องเมื่อ `ttsEnabled = true` |
 | เงื่อนไข TTS | `amount >= minAmountForTTS` (seed = 20) | ยอด 100 → `ttsEnabled = true` / ยอด 10 → `false` |
 | ปุ่มปิด TTS | กด Emergency TTS mute ใน Dashboard | TTS หยุดทันที (ทั้งที่กำลังเล่นและ alert ถัดไป) |
+| **เสียงที่ถูกเลือก** | เติม `&ttsdiag=1` ท้าย URL ของ overlay → ดูแผงมุมล่างขวา | ต้องแสดงเสียงไทยที่ระบบเลือก (หญิง/ธรรมชาติ ก่อนเสียงผู้ชาย) |
 
-**หมายเหตุ**: สคริปต์ CLI ตรวจได้แค่ payload (`soundUrl`, `ttsEnabled`) และการมีอยู่ของ `public/alerts/alert.mp3`
-ส่วนการได้ยินเสียงจริงต้องยืนยันใน OBS/browser (ข้อจำกัดของ Web Speech API + autoplay policy)
+**ตรวจข้อความที่จะถูกอ่าน โดยไม่ต้องเปิดเบราว์เซอร์**
+
+```powershell
+npx tsx scripts/tts-preview.ts
+# ตรวจ: อ่านจำนวนเงินเป็นคำไทย (300 → "สามร้อยบาท") · ตัด emoji/★/URL/@mention · เลือกเสียงไทยที่เหมาะที่สุด
+```
+
+**ปรับเสียงชั่วคราวผ่าน URL ของ overlay (ไม่ต้องแก้โค้ด / ไม่ต้อง redeploy)**
+
+| พารามิเตอร์ | ความหมาย | ค่าเริ่มต้น |
+|---|---|---|
+| `&ttsdiag=1` | แสดงรายชื่อเสียงไทยทั้งหมด + เสียงที่ถูกเลือก | ปิด |
+| `&ttsvoice=<ชื่อเสียง>` | บังคับใช้เสียงที่ระบุ เช่น `premwadee` หรือ `pattara` | เลือกอัตโนมัติ |
+| `&ttsrate=0.92` | ความเร็ว (0.5–1.6) | `0.98` |
+| `&ttspitch=1.08` | ระดับเสียงสูงต่ำ (0.5–1.6) | `1.08` |
+
+**หมายเหตุ**: สคริปต์ CLI ตรวจได้แค่ payload (`soundUrl`, `ttsEnabled`) และข้อความที่จะอ่าน
+ส่วนการได้ยินเสียงจริงต้องยืนยันใน OBS/browser (ข้อจำกัดของ Web Speech API + autoplay policy + รายชื่อเสียงที่ติดตั้งในเครื่อง)
+⚠️ ถ้า `&ttsdiag=1` ขึ้นว่า “พบแต่เสียงไทยผู้ชาย” แปลว่าเครื่องยังไม่มีเสียงหญิงไทย → ดูทางแก้ที่ `docs/STREAM_DAY_CHECKLIST.md` หัวข้อ 🔊
 
 **ทดสอบยอดต่ำกว่าเกณฑ์ TTS (optional)**
 
