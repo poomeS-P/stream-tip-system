@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AlertEventPayload, EmergencyStatus } from "@/types";
+import SmokeBackdrop from "./SmokeBackdrop";
 
 interface OverlayClientProps {
   token: string;
@@ -30,6 +31,8 @@ export default function OverlayClient({ token }: OverlayClientProps) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
+  // กรอบข้อความที่ควันจะล้อมรอบ (ใช้วัดขนาดจริงหลัง render)
+  const textRef = useRef<HTMLDivElement | null>(null);
 
   // ค่า Emergency ล่าสุด — เก็บใน ref เพื่อให้ useCallback ที่ถูกสร้างครั้งเดียว
   // อ่านค่าปัจจุบันได้เสมอ โดยไม่ต้องสร้าง EventSource ใหม่ (ไม่ reconnect)
@@ -154,65 +157,81 @@ export default function OverlayClient({ token }: OverlayClientProps) {
   }, [token, showAlert, hideAlert]);
 
   return (
-    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-full max-w-lg px-4 pointer-events-none">
+    <div className="fixed inset-x-0 bottom-0 flex justify-center pb-24 pointer-events-none">
       {currentAlert && (
         <div
-          className={`
-            bg-gradient-to-r from-purple-600 to-indigo-600 text-white rounded-2xl shadow-2xl p-5
-            transition-all duration-500
-            ${isVisible ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-8 scale-95"}
-          `}
+          className={`relative transition-all duration-500 ${
+            isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
+          }`}
         >
-          {/* Header */}
-          <div className="flex items-center gap-3 mb-3">
-            <div className="text-3xl">💜</div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-lg leading-tight truncate">
-                {currentAlert.donorName}
+          {/* ควันรอบกรอบข้อความ — ไม่มีพื้นหลัง */}
+          <SmokeBackdrop targetRef={textRef} pulseKey={currentAlert.alertId} active={isVisible} />
+
+          <div ref={textRef} className="oa-text relative z-10 max-w-[1180px]">
+            {/* บรรทัดที่ 1: ชื่อ + โดเนทมา + จำนวนเงิน */}
+            <p className="oa-line1">
+              <span className="oa-name">{currentAlert.donorName}</span>
+              <span className="oa-verb">โดเนทมา</span>
+              <span className="oa-amount">฿{currentAlert.amount.toLocaleString("th-TH")}</span>
+            </p>
+
+            {/* บรรทัดที่ 2: ข้อความ */}
+            {currentAlert.message && (
+              <p className={`oa-message${currentAlert.hasFilteredWord ? " oa-message--muted" : ""}`}>
+                {currentAlert.message}
               </p>
-              <p className="text-purple-200 text-sm font-medium">
-                บริจาค{" "}
-                <span className="text-white font-bold text-base">
-                  ฿{currentAlert.amount.toLocaleString("th-TH")}
-                </span>
-              </p>
-            </div>
-            {currentAlert.ttsEnabled && !emergency.ttsMuted && (
-              <div className="text-2xl animate-pulse">🔊</div>
             )}
           </div>
 
-          {/* Message */}
-          {currentAlert.message && !emergency.alertMuted && (
-            <div className="bg-white/20 rounded-xl px-4 py-3 text-sm leading-relaxed break-words">
-              {currentAlert.hasFilteredWord ? (
-                <span className="italic text-yellow-200">{currentAlert.message}</span>
-              ) : (
-                currentAlert.message
-              )}
-            </div>
-          )}
-
-          {/* Progress bar */}
-          <div className="mt-3 h-1 bg-white/20 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-white/70 rounded-full"
-              style={{
-                animation: isVisible
-                  ? `shrink ${currentAlert.durationSeconds}s linear forwards`
-                  : "none",
-              }}
-            />
-          </div>
+          <style>{`
+            .oa-text {
+              font-family: "Noto Sans Thai", "Leelawadee UI", "Sarabun", "Segoe UI", system-ui, sans-serif;
+              text-align: center;
+              line-height: 1.18;
+            }
+            .oa-line1 {
+              margin: 0;
+              display: flex;
+              align-items: baseline;
+              justify-content: center;
+              gap: 0.42em;
+              flex-wrap: wrap;
+              font-size: clamp(30px, 3.4vw, 56px);
+              font-weight: 800;
+              color: #ffffff;
+              text-shadow:
+                0 2px 10px rgba(0, 0, 0, 0.92),
+                0 0 32px rgba(0, 0, 0, 0.6),
+                0 1px 2px rgba(0, 0, 0, 0.95);
+            }
+            .oa-name { color: #ffffff; }
+            .oa-verb {
+              font-size: 0.7em;
+              font-weight: 600;
+              color: #e9eef8;
+            }
+            .oa-amount { color: #ffd76a; }
+            .oa-message {
+              margin: 0.34em 0 0;
+              font-size: clamp(19px, 1.9vw, 34px);
+              font-weight: 500;
+              color: #f3f6fc;
+              overflow-wrap: anywhere;
+              text-shadow:
+                0 2px 8px rgba(0, 0, 0, 0.92),
+                0 0 24px rgba(0, 0, 0, 0.55);
+              display: -webkit-box;
+              -webkit-line-clamp: 3;
+              -webkit-box-orient: vertical;
+              overflow: hidden;
+            }
+            .oa-message--muted {
+              font-style: italic;
+              color: #ffe8a3;
+            }
+          `}</style>
         </div>
       )}
-
-      <style>{`
-        @keyframes shrink {
-          from { width: 100%; }
-          to { width: 0%; }
-        }
-      `}</style>
     </div>
   );
 }
