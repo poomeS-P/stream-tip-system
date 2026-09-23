@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { setClientCookie } from "@/lib/client-cookie";
 
 export default function AdminLoginPage() {
   const [token, setToken] = useState("");
@@ -22,7 +23,8 @@ export default function AdminLoginPage() {
 
       if (res.ok) {
         // บันทึก token ลง cookie (httpOnly ไม่ได้ใน client-side — ใช้ cookie ธรรมดา)
-        document.cookie = `admin_token=${token}; path=/; max-age=86400; SameSite=Strict`;
+        // ใช้ setClientCookie เพื่อ encode ค่าที่มีอักขระพิเศษ (+, =, /) อย่างถูกต้อง
+        setClientCookie("admin_token", token);
         router.push("/admin");
       } else {
         setError("Token ไม่ถูกต้อง กรุณาตรวจสอบใน .env อีกครั้ง");
