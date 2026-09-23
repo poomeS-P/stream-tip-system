@@ -32,6 +32,11 @@
 
 - ค่า `OVERLAY_TOKEN` ดูได้ที่ Railway → service → **Variables** → `OVERLAY_TOKEN` (หรือไฟล์ `.env.railway.local`)
 - 🔒 **อย่าแชร์ URL ที่มี token ให้คนอื่น** — ใครมี token จะเชื่อมสตรีมแจ้งเตือน/ACK ได้
+- 💨 **ควันรอบข้อความ (Donate overlay)** ใช้เอนจินตัวเดียวกับการ์ดแจ้งเตือน Follow ของระบบเก่า
+  - ปรับได้ท้าย URL เช่น `&smoke=A2` (พรีเซ็ต: A=กลม · B=ฟู · C=สายไอ, เลข 1=เบา 2=กลาง 3=หนัก)
+  - ตัวคูณเฉพาะการ์ดกว้าง: `&smokespreadx=1.75&smokespready=1.15&smokesize=1.1&smokecount=1.85&smokeop=1` (`&smokefit=1` = ปิดตัวคูณ)
+  - อยากให้โผล่ไวขึ้น/ช้าลง: `&enterMs=800` · `&exitMs=600`
+  - ต้นทางเอนจิน: `poomes-stream-system/views/alert.html` → sync ด้วย `node scripts/extract-smoke-engine.mjs`
 
 ## 💸 ลิงก์รับโดเนท (ส่งให้ผู้ชม / ทำ QR)
 
