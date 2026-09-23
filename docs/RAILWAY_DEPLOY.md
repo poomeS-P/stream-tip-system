@@ -137,4 +137,14 @@ git check-ignore -v .env       # ต้องขึ้นว่า .gitignore �
 - เสียง alert: วางไฟล์ MP3 ที่ `public/alerts/alert.mp3` (ตอนนี้ยังไม่มี → เสียง 404 แต่ TTS ยังทำงาน)
 - **ยังไม่ต้องทำ Stripe Live**: เมื่อตรวจ production รอบนี้ผ่านแล้ว ค่อยเปลี่ยนเป็นคีย์ Live + สร้าง endpoint Live
   + อัปเดต `STRIPE_WEBHOOK_SECRET` (ไม่ต้องแก้โค้ด)
+- **npm ที่ใช้ต้องเป็น 11+** — `package.json` pin ไว้แล้วด้วย `"packageManager": "npm@11.6.2"`
+  (Nixpacks ติดตั้งให้อัตโนมัติผ่าน corepack; Node 24 ก็มี npm 11 มาให้อยู่แล้ว)
+  - `package-lock.json` ในโปรเจกต์ถูกตรวจ/ยืนยันด้วย **npm 11** (ทั้ง win32 และจำลอง linux-x64-gnu)
+  - ถ้าใช้ **npm 10** (Node 22) จะเจอ `Missing: @emnapi/runtime@1.11.3 from lock file`
+    ซึ่งเป็นข้อบกพร่องของ npm กับ optional dependency ของ wasm32 ที่ไม่ถูกติดตั้งจริงบน x64
+  - ⚠️ **ห้าม regenerate lock ด้วย npm 10** (เช่น `npm install --package-lock-only` บน Windows)
+    เพราะ npm 10 จะ **ตัด binary ของ Linux ออกจาก lock** (`@next/swc-linux-x64-gnu`, `@tailwindcss/oxide-linux-x64-gnu`,
+    `lightningcss-linux-x64-gnu`, `@img/sharp-linux-x64`, `@esbuild/linux-x64`) → build บน Railway จะพัง
+  - ถ้าต้องการเปลี่ยน dependency ให้รัน `npm install` ด้วย npm 11 แล้วตรวจว่า binary ของทั้ง linux และ win32 ยังอยู่ใน lock
+
 
