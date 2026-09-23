@@ -187,6 +187,8 @@ docker-compose exec app npm run db:seed
 
 ## 🚂 Deploy บน Railway (Production)
 
+🔁 **เช็คก่อนไลฟ์ทุกครั้ง:** [docs/STREAM_DAY_CHECKLIST.md](docs/STREAM_DAY_CHECKLIST.md) (เปิด/เช็คอะไรบ้างหลังรีสตาร์ทเครื่อง)
+
 คู่มือเต็มอยู่ที่ **[docs/RAILWAY_DEPLOY.md](docs/RAILWAY_DEPLOY.md)** — สรุปย่อ:
 
 1. push repo ขึ้น GitHub (ไฟล์ `.env` ถูก ignore ไว้แล้ว — ห้าม commit ค่าจริง)
