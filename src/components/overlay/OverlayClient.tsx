@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AlertEventPayload, EmergencyStatus } from "@/types";
-import SmokeBackdrop from "./SmokeBackdrop";
 
 interface OverlayClientProps {
   token: string;
@@ -31,8 +30,6 @@ export default function OverlayClient({ token }: OverlayClientProps) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
   const speechRef = useRef<SpeechSynthesisUtterance | null>(null);
-  // กรอบข้อความที่ควันจะล้อมรอบ (ใช้วัดขนาดจริงหลัง render)
-  const textRef = useRef<HTMLDivElement | null>(null);
 
   // ค่า Emergency ล่าสุด — เก็บใน ref เพื่อให้ useCallback ที่ถูกสร้างครั้งเดียว
   // อ่านค่าปัจจุบันได้เสมอ โดยไม่ต้องสร้าง EventSource ใหม่ (ไม่ reconnect)
@@ -164,10 +161,8 @@ export default function OverlayClient({ token }: OverlayClientProps) {
             isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-6"
           }`}
         >
-          {/* ควันรอบกรอบข้อความ — ไม่มีพื้นหลัง */}
-          <SmokeBackdrop targetRef={textRef} pulseKey={currentAlert.alertId} active={isVisible} />
-
-          <div ref={textRef} className="oa-text relative z-10 max-w-[1180px]">
+          {/* ข้อความล้วน ไม่มีพื้นหลัง (ควันย้ายไปที่แจ้งเตือน Follow ของระบบเก่า) */}
+          <div className="oa-text relative z-10 max-w-[1180px]">
             {/* บรรทัดที่ 1: ชื่อ + โดเนทมา + จำนวนเงิน */}
             <p className="oa-line1">
               <span className="oa-name">{currentAlert.donorName}</span>
