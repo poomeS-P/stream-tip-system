@@ -8,11 +8,13 @@ import type { TopDonor, TopDonorsResult } from "@/lib/top-donors";
 /**
  * Top Donate — ผู้สนับสนุนยอดสะสมสูงสุด 3 อันดับ (ดีไซน์ "ตารางไม่มีกรอบ")
  *
- * ดีไซน์: ให้ความรู้สึกเดียวกับการ์ด Last Follow — ตัวหนังสือใหญ่ อ่านง่าย และ **พื้นหลังใสสนิท**
+ * ดีไซน์: **สไตล์ตัวอักษรชุดเดียวกับการ์ด Last Follow** (Montserrat 300/500/600 + Noto Sans Thai เป็น fallback
+ *  น้ำหนัก 600 · ระยะห่างตัวอักษรและเงานุ่มคัดค่ามาจาก .lt-label / .lt-name / .lt-timer) และ **พื้นหลังใสสนิท**
  *  หัวข้อ "Top Donate" ตามด้วยบรรทัด `01 · ชื่อผู้สนับสนุน · ฿ยอดรวม` (หนึ่งบรรทัดต่อหนึ่งคน)
  *  - ไม่มีกรอบ/ไม่มีเส้นคั่น/ไม่มี plate (พื้นหลัง) — ตัวอักษรชื่อเป็น **สีดำ** ตามที่กำหนด (`?namecolor=`)
  *  - เลขอันดับ 01/02/03 สื่อลำดับด้วย "สี" (ทอง/เงิน/ทองแดง) ไม่ใช้ emoji
- *  - ควันของเอนจินเดิม **ปิดไว้เป็นค่าเริ่มต้น** (ไม่ให้มีอะไรอยู่หลังตัวอักษร) — เปิดด้วย `?smokeon=1`
+ *  - ควันของเอนจินเดิม **เปิดไว้แบบเบา ๆ** (ก้อนเล็ก จำนวนน้อย จาง) — ปิดด้วย `?nosmoke=1`
+ *  - ฟอนต์ Montserrat self-host ด้วย next/font ที่ src/app/podium/page.tsx (ตอนเล่นไม่ยิง request ไป Google)
  *
  * กติกาข้อมูล: นับเฉพาะยอดจริง (ดู src/lib/top-donors.ts) · 匿名 → "ไม่ระบุชื่อ"
  * ถ้ามีไม่ถึง 3 คน = แสดงเท่าที่มี (ไม่สร้างข้อมูลปลอม) · ไม่มีเลย = ไม่แสดงอะไร (โปร่งใส)
@@ -37,7 +39,7 @@ interface BoardConfig {
   tint: string;
   /** true = ใส่พื้นฝ้า (frosted) จาง ๆ หลังข้อความทั้งชุด (ค่าเริ่มต้น: ปิด = พื้นหลังใสสนิท) */
   plate: boolean;
-  /** true = เปิดควันของตาราง (ค่าเริ่มต้น: ปิด เพื่อให้ไม่มีอะไรอยู่หลังตัวอักษร) */
+  /** true = ควันของตาราง (ค่าเริ่มต้น: เปิดแบบเบา ๆ — ปิดด้วย ?nosmoke=1) */
   smoke: boolean;
   /** ข้อความหัวข้อด้านบน (ว่าง = ไม่แสดง) */
   title: string;
@@ -54,6 +56,19 @@ interface BoardConfig {
 
 /** สีควันเริ่มต้น: โทนทองอ่อน ๆ (เข้าชุดกับเลข 01 และสีตัวเลขยอดเงิน) */
 const DEFAULT_TINT = "sepia(.86) saturate(2.7) hue-rotate(-10deg) brightness(1.06)";
+
+/**
+ * ควันแบบ "เบา ๆ พอให้มี" ของตาราง Top Donate (ค่าต่างจากการ์ด Follow ของระบบเดิม)
+ * ก้อนเล็กกว่า + จำนวนน้อยกว่า + จางกว่า -> ลอยอยู่หลังตัวอักษรโดยไม่กลืนข้อความ
+ * ปรับสดจาก URL ได้เหมือนเดิม เช่น ?smokesize=1.2 · ?smokecount=1.4 · ?smokeop=1
+ */
+const SMOKE_FILL: Record<string, number> = {
+    spreadX: 1.3,
+    spreadY: 0.95,
+    sizeK: 0.9,
+    countK: 0.75,
+    opacityK: 0.5,
+};
 
 /**
  * ความกว้างเริ่มต้น: กว้างกว่าการ์ด Last Follow เล็กน้อย เพื่อให้ชื่อ + ยอดตัวใหญ่ยังอ่านครบ
@@ -97,7 +112,7 @@ function readBoardConfig(search: string): BoardConfig {
     scale,
     tint: rawTint === "" ? DEFAULT_TINT : rawTint.toLowerCase() === "none" || rawTint === "0" ? "none" : rawTint,
     plate: params.get("plate") === "1",
-    smoke: params.get("smokeon") === "1" && params.get("nosmoke") !== "1",
+    smoke: params.get("nosmoke") !== "1" && params.get("smokeon") !== "0",
     title: rawTitle === null ? "Top Donate" : rawTitle.trim() === "0" ? "" : rawTitle.trim(),
     nameColor: color("namecolor", "#0b0b0b"),
     amountColor: color("amountcolor", "#ffd76a"),
@@ -109,7 +124,7 @@ function readBoardConfig(search: string): BoardConfig {
 
 /**
  * ค่าเริ่มต้น — ใช้เมื่อ "ยังไม่รู้ URL ของเบราว์เซอร์" (ตอน SSR/เฟรมแรก)
- * ค่าตรงกับค่าเริ่มต้นจริง: มุมล่างซ้าย · ความกว้างตามสูตร · ควันทองอ่อน · ไม่มี plate
+ * ค่าตรงกับค่าเริ่มต้นจริง: มุมล่างซ้าย · ความกว้างตามสูตร · ควันทองเบา ๆ (เปิด) · ไม่มี plate · ชื่อสีดำ
  */
 const DEFAULT_CONFIG: BoardConfig = {
   position: "bottom-left",
@@ -118,7 +133,7 @@ const DEFAULT_CONFIG: BoardConfig = {
   scale: 1,
   tint: DEFAULT_TINT,
   plate: false,
-  smoke: false,
+  smoke: true,
   title: "Top Donate",
   nameColor: "#0b0b0b",
   amountColor: "#ffd76a",
@@ -257,8 +272,8 @@ export default function PodiumClient({ token, initial }: PodiumClientProps) {
     >
       {hasData ? (
         <div className="board-list" data-plate={config.plate ? "1" : "0"} ref={listRef}>
-          {/* ควันชุดเดิมของระบบ (ปิดไว้เป็นค่าเริ่มต้น — เปิดด้วย ?smokeon=1) */}
-          {config.smoke ? <SmokeBackdrop textRef={listRef} active /> : null}
+          {/* ควันชุดเดิมของระบบ — เปิดไว้แบบเบา ๆ (ก้อนเล็ก/จาง · ปิดด้วย ?nosmoke=1) */}
+          {config.smoke ? <SmokeBackdrop textRef={listRef} active fillDefaults={SMOKE_FILL} /> : null}
 
           {/* หัวข้อ: "Top Donate" (ปิดด้วย ?title=0 · เปลี่ยนข้อความด้วย ?title=...) */}
           {config.title ? <div className="board-title">{config.title}</div> : null}
@@ -294,8 +309,10 @@ export default function PodiumClient({ token, initial }: PodiumClientProps) {
 }
 
 /**
- * CSS ของ "ตารางไม่มีกรอบ" — อ่านง่าย ตัวใหญ่เหมือนการ์ด Last Follow
- * ไม่มีกรอบ/ไม่มีเส้นคั่น/ไม่มีแท่น · เงาข้อความแบบเดียวกับที่ใช้บนจอ
+ * CSS ของ "ตารางไม่มีกรอบ" — ตัวอักษรเป็นสไตล์เดียวกับการ์ด Last Follow
+ *  - ฟอนต์: Montserrat (self-host ผ่าน next/font) + Noto Sans Thai fallback
+ *  - น้ำหนัก 600 · letter-spacing · เงานุ่ม — คัดค่ามาจาก .lt-label / .lt-name / .lt-timer ของ alert.html
+ * ไม่มีกรอบ/ไม่มีเส้นคั่น/ไม่มีแท่น
  */
 const BOARD_CSS = `
   .board-root {
@@ -304,7 +321,11 @@ const BOARD_CSS = `
     width: var(--board-w, calc(min(32vw, 560px) * 0.92));
     --ink: #eef1f6;
     color: var(--ink);
-    font-family: "Montserrat", "Noto Sans Thai", "Leelawadee UI", "Segoe UI", Tahoma, sans-serif;
+    /* ฟอนต์ชุดเดียวกับการ์ด Last Follow (Montserrat โหลดด้วย next/font ที่หน้า /podium) */
+    font-family: var(--font-montserrat), "Montserrat", "Noto Sans Thai", "Leelawadee UI", "Segoe UI", Tahoma, sans-serif;
+    font-weight: 500;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     pointer-events: none;
   }
   .board-root[data-pos="bottom-left"] { left: var(--board-pad-x, 3.2vw); bottom: var(--board-pad-y, 5.5vh); }
@@ -331,16 +352,20 @@ const BOARD_CSS = `
   /* ควัน: ย้อมสีทั้งก้อนด้วย CSS filter (ไม่แตะงานศิลป์/แอนิเมชันของเอนจินเดิม) */
   .board-list .oa-smoke { filter: var(--board-tint, none); }
 
-  /* หัวข้อด้านบน (ตัวใหญ่พออ่าน แต่เป็น label ไม่แย่งความสนใจ) */
+  /* หัวข้อด้านบน — คัดสไตล์จาก .lt-label ของการ์ด Last Follow (600 · .22em · uppercase · เงารัดตัว)
+     เงาพลิกเป็น "แสงขาวนุ่ม" เพราะหัวข้อใช้สีเดียวกับชื่อ (ดำเป็นค่าเริ่มต้น) จึงต้องลอยได้เอง */
   .board-title {
     position: relative;
     z-index: 1;
-    margin-bottom: calc(4px * var(--board-scale, 1));
-    font-size: calc(clamp(15px, 1.35vw, 22px) * var(--board-scale, 1));
-    font-weight: 700;
-    letter-spacing: 0.14em;
+    margin-bottom: calc(6px * var(--board-scale, 1));
+    font-size: calc(clamp(12px, 1.2vw, 16px) * var(--board-scale, 1));
+    font-weight: 600;
+    letter-spacing: 0.22em;
     text-transform: uppercase;
     color: var(--board-name-color, #0b0b0b);
+    text-shadow:
+      0 0 1px rgba(255, 255, 255, 0.55),
+      0 0 3px rgba(255, 255, 255, 0.28);
   }
 
   /* หนึ่งบรรทัด = อันดับ | ชื่อ | ยอด (ไม่มีเส้นคั่น/ไม่มีกรอบ) */
@@ -357,8 +382,12 @@ const BOARD_CSS = `
     font-size: calc(clamp(19px, 2vw, 30px) * var(--board-scale, 1));
     font-weight: 600;
     letter-spacing: 0.06em;
+    font-variant-numeric: tabular-nums;
     color: #f2f5fa;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    /* เงารัดตัวแบบ .lt-timer (ไม่ใช่เงาเบลอเยื้องที่ทำให้ขอบฟุ้ง) */
+    text-shadow:
+      0 0 1px rgba(10, 12, 16, 0.85),
+      0 0 4px rgba(10, 12, 16, 0.55);
   }
 
   /* สีสื่ออันดับ (ไม่เขียนคำ Gold/Silver/Bronze) — ปิดได้ด้วย ?rankcolor=0 */
@@ -366,22 +395,32 @@ const BOARD_CSS = `
   .board-root[data-rankcolor="1"] .board-row[data-rank="2"] .board-rank { color: #8f9aa9; }
   .board-root[data-rankcolor="1"] .board-row[data-rank="3"] .board-rank { color: #b9724a; }
 
-  /* ชื่อผู้สนับสนุน: สีดำ (ปรับได้ด้วย ?namecolor=) — ไม่มีพื้นหลัง ไม่มีเงาหนัก */
+  /* ชื่อผู้สนับสนุน — คัดค่าจาก .lt-name (600 · .02em · line-height 1.15) แต่พลิกเงาเป็น "แสงขาวนุ่ม"
+     ให้เข้าชุดกับชื่อสีดำ (?namecolor=) ที่ต้องลอยอยู่บนฉากได้โดยไม่มีพื้นหลัง */
   .board-name {
     font-size: calc(clamp(23px, 2.6vw, 40px) * var(--board-scale, 1));
-    font-weight: 700;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     line-height: 1.15;
     color: var(--board-name-color, #0b0b0b);
+    text-shadow:
+      0 0 1px rgba(255, 255, 255, 0.55),
+      0 1px 2px rgba(255, 255, 255, 0.3),
+      0 0 12px rgba(255, 255, 255, 0.18);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
+  /* ยอดเงิน — สไตล์เดียวกับ .lt-name (600 · .02em) และเงาชุดเดิมของการ์ด Last Follow */
   .board-amount {
     font-size: calc(clamp(23px, 2.6vw, 40px) * var(--board-scale, 1));
-    font-weight: 700;
+    font-weight: 600;
+    letter-spacing: 0.02em;
     color: var(--board-amount-color, #ffd76a);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    text-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.6),
+      0 0 12px rgba(0, 0, 0, 0.28);
   }
 
   .board-diag {

@@ -65,15 +65,20 @@ const FILL_QUERY: Record<string, string> = {
     opacityK: "smokeop",
 };
 
-function readFill(search: string): Record<string, number> | undefined {
+/**
+ * อ่านตัวคูณการวางก้อน: ค่าจาก URL ชนะเสมอ ถ้าไม่ระบุใช้ `defaults`
+ * (defaults ถูกใช้ให้การ์ดที่ทรงต่างกันมี "ค่าเริ่มต้น" ของตัวเอง เช่นตาราง Top Donate ที่อยากได้ควันเบา ๆ)
+ */
+function readFill(search: string, defaults: Record<string, number> = FILL_DEFAULTS): Record<string, number> | undefined {
     const params = new URLSearchParams(search);
     if (params.get("smokefit") === "1") return undefined;
 
     const fill: Record<string, number> = {};
     for (const key of Object.keys(FILL_DEFAULTS)) {
+        const fallback = defaults[key] ?? FILL_DEFAULTS[key];
         const raw = params.get(FILL_QUERY[key]);
-        const value = raw === null ? FILL_DEFAULTS[key] : Number(raw);
-        fill[key] = Number.isFinite(value) ? Math.min(3, Math.max(0.2, value)) : FILL_DEFAULTS[key];
+        const value = raw === null ? fallback : Number(raw);
+        fill[key] = Number.isFinite(value) ? Math.min(3, Math.max(0.2, value)) : fallback;
     }
     return fill;
 }
@@ -105,9 +110,14 @@ interface SmokeBackdropProps {
     textRef: React.RefObject<HTMLElement | null>;
     /** เปิด/ปิดการแสดง — false = ปล่อยควันจางหายตามการ์ด */
     active: boolean;
+    /**
+     * ค่าเริ่มต้นของตัวคูณการวางก้อน (ใช้เมื่อ URL ไม่ได้ระบุ) — ต้องเป็นค่าคงที่ระดับโมดูล
+     * เพื่อไม่ให้ effect ทำงานซ้ำ · ไม่ส่ง = ใช้ FILL_DEFAULTS ของการ์ดแจ้งเตือนเดิม
+     */
+    fillDefaults?: Record<string, number>;
 }
 
-export default function SmokeBackdrop({ textRef, active }: SmokeBackdropProps) {
+export default function SmokeBackdrop({ textRef, active, fillDefaults }: SmokeBackdropProps) {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const engineRef = useRef<SmokeEngine | null>(null);
     const instRef = useRef<SmokeInstance | null>(null);
@@ -130,7 +140,7 @@ export default function SmokeBackdrop({ textRef, active }: SmokeBackdropProps) {
                     if (disposed) return;
 
                     engineRef.current = engine;
-                    const inst = engine.spawn(canvas, target, readFill(window.location.search));
+                    const inst = engine.spawn(canvas, target, readFill(window.location.search, fillDefaults));
                     instRef.current = inst;
 
                     // เอนจินไม่เปลี่ยนเฟสเอง — ผู้เรียกสั่ง (แบบเดียวกับ alert.html บรรทัด 2868)
@@ -158,7 +168,7 @@ export default function SmokeBackdrop({ textRef, active }: SmokeBackdropProps) {
             instRef.current = null;
             engineRef.current?.release(inst);
         };
-    }, [textRef]);
+    }, [textRef, fillDefaults]);
 
     // การ์ดเริ่มซ่อน -> ให้ควันหุบกลับเข้าศูนย์ (exit) แล้วค่อยปล่อย instance
     useEffect(() => {

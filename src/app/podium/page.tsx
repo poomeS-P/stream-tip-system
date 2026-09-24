@@ -1,8 +1,22 @@
 import type { Metadata } from "next";
+import { Montserrat } from "next/font/google";
 import { redirect } from "next/navigation";
 import PodiumClient from "@/components/overlay/PodiumClient";
 import { isOverlayToken, normalizeOverlayToken } from "@/lib/overlay-token";
 import { getTopDonors } from "@/lib/top-donors";
+
+/**
+ * ฟอนต์ของการ์ด Top Donate — **ชุดเดียวกับการ์ด Last Follow ของระบบเดิมเป๊ะ**
+ * (ระบบเดิมโหลด Montserrat:wght@300;500;600 จาก Google Fonts · ที่นี่ self-host ผ่าน next/font
+ *  -> เบราว์เซอร์ของ OBS ไม่ต้องยิง request ไป Google ตอนเล่น และน้ำหนักที่โหลดตรงกัน 3 ตัว)
+ * ตัวไทยยังใช้ Noto Sans Thai ที่โหลดไว้แล้วใน layout (แถว fallback ต่อท้าย)
+ */
+const montserrat = Montserrat({
+  variable: "--font-montserrat",
+  subsets: ["latin"],
+  weight: ["300", "500", "600"],
+  display: "swap",
+});
 
 /**
  * Top Donate Podium Page
@@ -50,7 +64,11 @@ export default async function PodiumPage({ searchParams }: PodiumPageProps) {
           overflow: hidden;
         }
       `}</style>
-      <PodiumClient token={normalizeOverlayToken(token as string)} initial={initial} />
+      {/* ครอบด้วยคลาสของ next/font (สร้าง CSS var --font-montserrat ให้ลูกทั้งหมด)
+          -> ตัวอักษรในตารางใช้ฟอนต์ชุดเดียวกับการ์ด Last Follow · div ธรรมดาไม่กระทบ position: fixed ของการ์ด */}
+      <div className={montserrat.variable}>
+        <PodiumClient token={normalizeOverlayToken(token as string)} initial={initial} />
+      </div>
     </>
   );
 }
