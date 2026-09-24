@@ -8,11 +8,11 @@ import type { TopDonor, TopDonorsResult } from "@/lib/top-donors";
 /**
  * Top Donate — ผู้สนับสนุนยอดสะสมสูงสุด 3 อันดับ (ดีไซน์ "ตารางไม่มีกรอบ")
  *
- * ดีไซน์: ให้ความรู้สึกเดียวกับการ์ด Last Follow — ตัวหนังสือใหญ่ อ่านง่าย ไม่มีแท่น/ไม่มีกรอบ/ไม่มีเส้นคั่น
- *  01 · ชื่อผู้สนับสนุน · ฿ยอดรวม     ← หนึ่งบรรทัดต่อหนึ่งคน (เรียงยอดมาก → น้อย)
- *  - เลขอันดับเป็น typography (01/02/03) สื่อลำดับด้วย "สี" ของตัวเลข (ทอง/เงิน/ทองแดง) ไม่ใช้ emoji
- *  - ควัน = เอนจินเดิมของระบบ (SmokeBackdrop) ครอบทั้งชุดเป็นก้อนเดียว (ไม่ใช่ต่อช่องแบบโพเดียม)
- *  - ตัวหนังสือใช้เงานุ่มแบบเดียวกับที่ใช้บนจอ (ไม่ต้องมี plate ก็อ่านชัด) · ใส่ plate จาง ๆ ได้ด้วย ?plate=1
+ * ดีไซน์: ให้ความรู้สึกเดียวกับการ์ด Last Follow — ตัวหนังสือใหญ่ อ่านง่าย และ **พื้นหลังใสสนิท**
+ *  หัวข้อ "Top Donate" ตามด้วยบรรทัด `01 · ชื่อผู้สนับสนุน · ฿ยอดรวม` (หนึ่งบรรทัดต่อหนึ่งคน)
+ *  - ไม่มีกรอบ/ไม่มีเส้นคั่น/ไม่มี plate (พื้นหลัง) — ตัวอักษรชื่อเป็น **สีดำ** ตามที่กำหนด (`?namecolor=`)
+ *  - เลขอันดับ 01/02/03 สื่อลำดับด้วย "สี" (ทอง/เงิน/ทองแดง) ไม่ใช้ emoji
+ *  - ควันของเอนจินเดิม **ปิดไว้เป็นค่าเริ่มต้น** (ไม่ให้มีอะไรอยู่หลังตัวอักษร) — เปิดด้วย `?smokeon=1`
  *
  * กติกาข้อมูล: นับเฉพาะยอดจริง (ดู src/lib/top-donors.ts) · 匿名 → "ไม่ระบุชื่อ"
  * ถ้ามีไม่ถึง 3 คน = แสดงเท่าที่มี (ไม่สร้างข้อมูลปลอม) · ไม่มีเลย = ไม่แสดงอะไร (โปร่งใส)
@@ -33,12 +33,18 @@ interface BoardConfig {
   /** >0 = ปักระยะห่างจากขอบเป็น px (เหมือน ?latestpadpx=) */
   padPx: number;
   scale: number;
-  /** สีควันของทั้งชุด (CSS filter) — "none" = ไม่ย้อม */
+  /** สีควันของทั้งชุด (CSS filter) — ใช้เมื่อเปิดควันเท่านั้น */
   tint: string;
-  /** true = ใส่พื้นฝ้า (frosted) จาง ๆ หลังข้อความทั้งชุด (ไม่มีเส้นขอบ) */
+  /** true = ใส่พื้นฝ้า (frosted) จาง ๆ หลังข้อความทั้งชุด (ค่าเริ่มต้น: ปิด = พื้นหลังใสสนิท) */
   plate: boolean;
-  /** false = ไม่ต้องมีควันเลย */
+  /** true = เปิดควันของตาราง (ค่าเริ่มต้น: ปิด เพื่อให้ไม่มีอะไรอยู่หลังตัวอักษร) */
   smoke: boolean;
+  /** ข้อความหัวข้อด้านบน (ว่าง = ไม่แสดง) */
+  title: string;
+  /** สีตัวอักษรชื่อผู้สนับสนุน (ค่าเริ่มต้น: สีดำ) */
+  nameColor: string;
+  /** สีตัวอักษรยอดเงิน */
+  amountColor: string;
   /** true = เลขอันดับ 01/02/03 ได้สี ทอง/เงิน/ทองแดง */
   rankColor: boolean;
   /** true = ใช้กับ dev เท่านั้น (นับยอดทดสอบด้วย) */
@@ -78,6 +84,11 @@ function readBoardConfig(search: string): BoardConfig {
   const scale = Number.isFinite(scaleRaw) && scaleRaw > 0.2 && scaleRaw <= 3 ? scaleRaw : 1;
 
   const rawTint = (params.get("tint") ?? "").trim();
+  const rawTitle = params.get("title");
+  const color = (key: string, fallback: string): string => {
+    const value = (params.get(key) ?? "").trim();
+    return value === "" ? fallback : value;
+  };
 
   return {
     position,
@@ -86,7 +97,10 @@ function readBoardConfig(search: string): BoardConfig {
     scale,
     tint: rawTint === "" ? DEFAULT_TINT : rawTint.toLowerCase() === "none" || rawTint === "0" ? "none" : rawTint,
     plate: params.get("plate") === "1",
-    smoke: params.get("nosmoke") !== "1",
+    smoke: params.get("smokeon") === "1" && params.get("nosmoke") !== "1",
+    title: rawTitle === null ? "Top Donate" : rawTitle.trim() === "0" ? "" : rawTitle.trim(),
+    nameColor: color("namecolor", "#0b0b0b"),
+    amountColor: color("amountcolor", "#ffd76a"),
     rankColor: params.get("rankcolor") !== "0",
     includeTest: params.get("includetest") === "1" || params.get("includeTest") === "1",
     diag: params.get("podiumdiag") === "1",
@@ -104,7 +118,10 @@ const DEFAULT_CONFIG: BoardConfig = {
   scale: 1,
   tint: DEFAULT_TINT,
   plate: false,
-  smoke: true,
+  smoke: false,
+  title: "Top Donate",
+  nameColor: "#0b0b0b",
+  amountColor: "#ffd76a",
   rankColor: true,
   includeTest: false,
   diag: false,
@@ -223,6 +240,8 @@ export default function PodiumClient({ token, initial }: PodiumClientProps) {
     "--board-pad-y": config.padPx > 0 ? `${config.padPx}px` : "5.5vh",
     "--board-scale": String(scale),
     "--board-tint": config.tint,
+    "--board-name-color": config.nameColor,
+    "--board-amount-color": config.amountColor,
   } as CSSProperties;
 
   const hasData = donors.length > 0;
@@ -238,8 +257,11 @@ export default function PodiumClient({ token, initial }: PodiumClientProps) {
     >
       {hasData ? (
         <div className="board-list" data-plate={config.plate ? "1" : "0"} ref={listRef}>
-          {/* ควันชุดเดิมของระบบ (ก้อนเดียวครอบทั้งตาราง) — ปิดได้ด้วย ?nosmoke=1 */}
+          {/* ควันชุดเดิมของระบบ (ปิดไว้เป็นค่าเริ่มต้น — เปิดด้วย ?smokeon=1) */}
           {config.smoke ? <SmokeBackdrop textRef={listRef} active /> : null}
+
+          {/* หัวข้อ: "Top Donate" (ปิดด้วย ?title=0 · เปลี่ยนข้อความด้วย ?title=...) */}
+          {config.title ? <div className="board-title">{config.title}</div> : null}
 
           {donors.map((donor) => (
             <div className="board-row" data-rank={donor.rank} key={donor.rank}>
@@ -309,6 +331,18 @@ const BOARD_CSS = `
   /* ควัน: ย้อมสีทั้งก้อนด้วย CSS filter (ไม่แตะงานศิลป์/แอนิเมชันของเอนจินเดิม) */
   .board-list .oa-smoke { filter: var(--board-tint, none); }
 
+  /* หัวข้อด้านบน (ตัวใหญ่พออ่าน แต่เป็น label ไม่แย่งความสนใจ) */
+  .board-title {
+    position: relative;
+    z-index: 1;
+    margin-bottom: calc(4px * var(--board-scale, 1));
+    font-size: calc(clamp(15px, 1.35vw, 22px) * var(--board-scale, 1));
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--board-name-color, #0b0b0b);
+  }
+
   /* หนึ่งบรรทัด = อันดับ | ชื่อ | ยอด (ไม่มีเส้นคั่น/ไม่มีกรอบ) */
   .board-row {
     position: relative;
@@ -324,29 +358,30 @@ const BOARD_CSS = `
     font-weight: 600;
     letter-spacing: 0.06em;
     color: #f2f5fa;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9), 0 0 22px rgba(0, 0, 0, 0.5);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
   }
 
   /* สีสื่ออันดับ (ไม่เขียนคำ Gold/Silver/Bronze) — ปิดได้ด้วย ?rankcolor=0 */
-  .board-root[data-rankcolor="1"] .board-row[data-rank="1"] .board-rank { color: #ffd76a; }
-  .board-root[data-rankcolor="1"] .board-row[data-rank="2"] .board-rank { color: #dbe2ee; }
-  .board-root[data-rankcolor="1"] .board-row[data-rank="3"] .board-rank { color: #e6a978; }
+  .board-root[data-rankcolor="1"] .board-row[data-rank="1"] .board-rank { color: #e0a52a; }
+  .board-root[data-rankcolor="1"] .board-row[data-rank="2"] .board-rank { color: #8f9aa9; }
+  .board-root[data-rankcolor="1"] .board-row[data-rank="3"] .board-rank { color: #b9724a; }
 
+  /* ชื่อผู้สนับสนุน: สีดำ (ปรับได้ด้วย ?namecolor=) — ไม่มีพื้นหลัง ไม่มีเงาหนัก */
   .board-name {
     font-size: calc(clamp(23px, 2.6vw, 40px) * var(--board-scale, 1));
-    font-weight: 600;
+    font-weight: 700;
     line-height: 1.15;
+    color: var(--board-name-color, #0b0b0b);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    text-shadow: 0 3px 10px rgba(0, 0, 0, 0.92), 0 0 26px rgba(0, 0, 0, 0.55);
   }
 
   .board-amount {
     font-size: calc(clamp(23px, 2.6vw, 40px) * var(--board-scale, 1));
     font-weight: 700;
-    color: #ffd76a;
-    text-shadow: 0 3px 10px rgba(0, 0, 0, 0.95), 0 0 26px rgba(0, 0, 0, 0.55);
+    color: var(--board-amount-color, #ffd76a);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
   }
 
   .board-diag {
