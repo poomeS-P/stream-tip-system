@@ -9,7 +9,8 @@ import type { TopDonor, TopDonorsResult } from "@/lib/top-donors";
  * Top Donate — ผู้สนับสนุนยอดสะสมสูงสุด 3 อันดับ (ดีไซน์ "ตารางไม่มีกรอบ")
  *
  * ดีไซน์: **สไตล์ตัวอักษรชุดเดียวกับการ์ด Last Follow** (Montserrat 300/500/600 + Noto Sans Thai เป็น fallback
- *  น้ำหนัก 600 · ระยะห่างตัวอักษรและเงานุ่มคัดค่ามาจาก .lt-label / .lt-name / .lt-timer) และ **พื้นหลังใสสนิท**
+ *  น้ำหนัก 600 · ระยะห่างตัวอักษรคัดค่ามาจาก .lt-label / .lt-name) แต่ **ตัวใหญ่กว่า ≈2 เท่า อ่านจากระยะไกล**
+ *  และ **พื้นหลังใสสนิท + ตัวอักษรชื่อ/หัวข้อไม่มีเงาเลย** (ไม่มีแสงขาวรอบตัวอักษร)
  *  หัวข้อ "Top Donate" ตามด้วยบรรทัด `01 · ชื่อผู้สนับสนุน · ฿ยอดรวม` (หนึ่งบรรทัดต่อหนึ่งคน)
  *  - ไม่มีกรอบ/ไม่มีเส้นคั่น/ไม่มี plate (พื้นหลัง) — ตัวอักษรชื่อเป็น **สีดำ** ตามที่กำหนด (`?namecolor=`)
  *  - เลขอันดับ 01/02/03 สื่อลำดับด้วย "สี" (ทอง/เงิน/ทองแดง) ไม่ใช้ emoji
@@ -71,12 +72,12 @@ const SMOKE_FILL: Record<string, number> = {
 };
 
 /**
- * ความกว้างเริ่มต้น: กว้างกว่าการ์ด Last Follow พอสมควร เพื่อให้ชื่อ + ยอด "ตัวใหญ่" อ่านจากระยะไกล
- * และยังอยู่บรรทัดเดียวเสมอ · กว้างจริง ≈ 686px @1920
+ * ความกว้างเริ่มต้น: กว้างกว่าการ์ด Last Follow มาก เพื่อให้ชื่อ + ยอด "ใหญ่" อ่านจากระยะไกล
+ * และยังอยู่บรรทัดเดียวเสมอ · กว้างจริง ≈ 843px @1920
  * (การ์ด Last Follow = calc(min(28vw,460px) * .82) ≈ 380px @1920)
  */
-const BOARD_WIDTH_CSS = "calc(min(38vw, 700px) * 0.98)";
-const REFERENCE_WIDTH_PX = 686;
+const BOARD_WIDTH_CSS = "calc(min(46vw, 860px) * 0.98)";
+const REFERENCE_WIDTH_PX = 843;
 
 const POSITIONS: readonly BoardPosition[] = ["bottom-left", "bottom-right", "top-left", "top-right"];
 
@@ -319,7 +320,7 @@ const BOARD_CSS = `
   .board-root {
     position: fixed;
     z-index: 5;
-    width: var(--board-w, calc(min(38vw, 700px) * 0.98));
+    width: var(--board-w, calc(min(46vw, 860px) * 0.98));
     --ink: #eef1f6;
     color: var(--ink);
     /* ฟอนต์ชุดเดียวกับการ์ด Last Follow (Montserrat โหลดด้วย next/font ที่หน้า /podium) */
@@ -338,7 +339,7 @@ const BOARD_CSS = `
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: calc(8px * var(--board-scale, 1));
+    gap: calc(10px * var(--board-scale, 1));
   }
 
   /* พื้นฝ้าจาง ๆ (ไม่บังคับ — ?plate=1) ไม่มีเส้นขอบตามที่กำหนด */
@@ -353,20 +354,17 @@ const BOARD_CSS = `
   /* ควัน: ย้อมสีทั้งก้อนด้วย CSS filter (ไม่แตะงานศิลป์/แอนิเมชันของเอนจินเดิม) */
   .board-list .oa-smoke { filter: var(--board-tint, none); }
 
-  /* หัวข้อด้านบน — คัดสไตล์จาก .lt-label ของการ์ด Last Follow (600 · .22em · uppercase · เงารัดตัว)
-     เงาพลิกเป็น "แสงขาวนุ่ม" เพราะหัวข้อใช้สีเดียวกับชื่อ (ดำเป็นค่าเริ่มต้น) จึงต้องลอยได้เอง */
+  /* หัวข้อด้านบน — คัดสไตล์จาก .lt-label ของการ์ด Last Follow (600 · .22em · uppercase)
+     ไม่ใส่เงาเลย -> ตัวอักษรสะอาดล้วน (ไม่มีแสงขาวรอบตัวอักษร) */
   .board-title {
     position: relative;
     z-index: 1;
-    margin-bottom: calc(8px * var(--board-scale, 1));
-    font-size: calc(clamp(13px, 1.35vw, 19px) * var(--board-scale, 1));
+    margin-bottom: calc(10px * var(--board-scale, 1));
+    font-size: calc(clamp(14px, 1.5vw, 22px) * var(--board-scale, 1));
     font-weight: 600;
     letter-spacing: 0.22em;
     text-transform: uppercase;
     color: var(--board-name-color, #0b0b0b);
-    text-shadow:
-      0 0 1px rgba(255, 255, 255, 0.55),
-      0 0 3px rgba(255, 255, 255, 0.28);
   }
 
   /* หนึ่งบรรทัด = อันดับ | ชื่อ | ยอด (ไม่มีเส้นคั่น/ไม่มีกรอบ) */
@@ -376,11 +374,11 @@ const BOARD_CSS = `
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: baseline;
-    column-gap: clamp(12px, 1.2vw, 22px);
+    column-gap: clamp(14px, 1.4vw, 26px);
   }
 
   .board-rank {
-    font-size: calc(clamp(22px, 2.6vw, 42px) * var(--board-scale, 1));
+    font-size: calc(clamp(26px, 3.1vw, 52px) * var(--board-scale, 1));
     font-weight: 600;
     letter-spacing: 0.06em;
     font-variant-numeric: tabular-nums;
@@ -396,18 +394,14 @@ const BOARD_CSS = `
   .board-root[data-rankcolor="1"] .board-row[data-rank="2"] .board-rank { color: #8f9aa9; }
   .board-root[data-rankcolor="1"] .board-row[data-rank="3"] .board-rank { color: #b9724a; }
 
-  /* ชื่อผู้สนับสนุน — คัดค่าจาก .lt-name (600 · .02em · line-height 1.15) แต่พลิกเงาเป็น "แสงขาวนุ่ม"
-     ให้เข้าชุดกับชื่อสีดำ (?namecolor=) ที่ต้องลอยอยู่บนฉากได้โดยไม่มีพื้นหลัง */
+  /* ชื่อผู้สนับสนุน — คัดค่าจาก .lt-name (600 · .02em · line-height 1.15)
+     ไม่ใส่เงาเลย (ไม่มีแสงขาวรอบตัวอักษรตามที่กำหนด) — ถ้าฉากหลังมืดมากให้ใช้ &namecolor=#ffffff */
   .board-name {
-    font-size: calc(clamp(30px, 3.5vw, 58px) * var(--board-scale, 1));
+    font-size: calc(clamp(36px, 4.2vw, 72px) * var(--board-scale, 1));
     font-weight: 600;
     letter-spacing: 0.02em;
     line-height: 1.15;
     color: var(--board-name-color, #0b0b0b);
-    text-shadow:
-      0 0 1px rgba(255, 255, 255, 0.55),
-      0 1px 2px rgba(255, 255, 255, 0.3),
-      0 0 12px rgba(255, 255, 255, 0.18);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -415,7 +409,7 @@ const BOARD_CSS = `
 
   /* ยอดเงิน — สไตล์เดียวกับ .lt-name (600 · .02em) และเงาชุดเดิมของการ์ด Last Follow */
   .board-amount {
-    font-size: calc(clamp(30px, 3.5vw, 58px) * var(--board-scale, 1));
+    font-size: calc(clamp(36px, 4.2vw, 72px) * var(--board-scale, 1));
     font-weight: 600;
     letter-spacing: 0.02em;
     color: var(--board-amount-color, #ffd76a);
