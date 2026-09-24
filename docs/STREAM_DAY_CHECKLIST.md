@@ -14,6 +14,12 @@
 - [ ] เปิด `https://stream-tip-system-production.up.railway.app/admin/login` → ใส่ `ADMIN_TOKEN`
       → การ์ด **🧪 ทดสอบ Alert** → กด **"ส่ง Test Alert ไปยัง OBS"** → การ์ดเด้ง = พร้อมไลฟ์ ✅
       (ตรวจว่า 🚨 Emergency Controls ปิดอยู่ทั้ง Alert และ TTS)
+- [ ] **ตั้ง Test Alert ให้ได้ยินเสียงอ่านด้วย** — การ์ดเด้งแล้วต้องได้ยิน "ชื่อ สนับสนุนจำนวน … บาท"
+      ถ้าเงียบ ดูหัวข้อ **🔊 เสียงอ่าน (TTS)** ด้านล่าง (เกณฑ์ขั้นต่ำ · `&tts=0` + หน้าต่าง Edge · Emergency)
+- [ ] **Stripe webhook endpoint ต้องมี path ครบ** — Dashboard → Developers → Webhooks → URL ต้องเป็น
+      `https://stream-tip-system-production.up.railway.app/api/webhooks/payment` (ห้ามเป็นรากเว็บ `/`)
+      และ Recent deliveries = **200**
+      ⚠️ ถ้าเป็น `/` เฉย ๆ Stripe จะได้ 200 จาก **หน้าเว็บโดเนท** → ดูเหมือนส่งสำเร็จ แต่ **ไม่มีแจ้งเตือนเลย** (และไม่ retry)
 
 ## 🖥️ เปิดในเครื่อง (เฉพาะที่ใช้จริง)
 
@@ -53,7 +59,9 @@
 |---|---|
 | overlay ขึ้น**หน้าส่งทิป** | token ใน URL ผิด/หาย → คัดลอกใหม่จาก Railway Variables (ต้องมี `?token=...` ครบ) |
 | กด Test Alert แล้วการ์ดไม่เด้ง | 🚨 Emergency Controls ต้องปิดทั้ง Alert/TTS · overlay ต้องเปิดอยู่/กด Refresh source |
-| **จ่ายจริงแล้วการ์ดไม่เด้ง** | Stripe Dashboard → Developers → **Webhooks** → ต้องมี endpoint `https://<domain>/api/webhooks/payment` + Recent deliveries = **200** และ `STRIPE_WEBHOOK_SECRET` ใน Railway ต้องตรงกับ endpoint นั้น |
+| **จ่ายจริงแล้วการ์ดไม่เด้ง** | Stripe Dashboard → Developers → **Webhooks** → URL ต้องมี `/api/webhooks/payment` ครบ + Recent deliveries = **200** และ `STRIPE_WEBHOOK_SECRET` ใน Railway ต้องตรงกับ endpoint นั้น |
+| **การ์ดเด้งแต่ไม่มีเสียงอ่าน (TTS)** | ดูหัวข้อ 🔊 เสียงอ่าน ด้านล่าง: ยอดต้อง ≥ `minAmountForTTS` · หน้าต่างที่เปิดต้องไม่ได้ `&tts=0` (หรือมี Edge `/overlay/voice` เปิดค้าง) · 🚨 Emergency TTS ต้อง 🟢 เปิด |
+| **ไม่มีเสียง "ติ๊ง" เตือน** | ยังไม่มีไฟล์ `public/alerts/alert.mp3` ในโปรเจกต์ → `/alerts/alert.mp3` = 404 (เงียบ ไม่มี error) · วิธีใส่ดู `public/alerts/README.txt` |
 | overlay เก่าขึ้น **404** | ยังไม่ได้รัน `start-overlay.bat` หรือมีโปรแกรมอื่นยึดพอร์ต 3000 |
 | follower/goal ไม่อัปเดต | เปิด `http://localhost:3000/auth/twitch` เพื่อล็อกอิน Twitch ใหม่ (token หมดอายุ) |
 | ระบบล่มทั้งหมด | Railway → service → **Restart** → เช็ค `/api/health` |
@@ -100,6 +108,33 @@
 
 > หมายเหตุ: หน้า Admin/Overlay ไม่ถูกแตะ — ธีมขาวใช้เฉพาะหน้าเว็บรับโดเนทเท่านั้น
 > ส่วนเป้าหมายต่อเดือน · รายชื่อผู้สนับสนุนล่าสุด · การ์ด PromptPay QR ถูกตัดออกจากหน้าเว็บแล้ว (เหลือเฉพาะฟอร์มโดเนท)
+
+## 🔊 เสียงอ่าน (TTS) + เสียงเตือน — ต้องได้ยินจริงก่อนไลฟ์
+
+ระบบจะ **อ่านออกเสียง** โดเนทหนึ่งรายการต่อเมื่อผ่านครบทุกข้อ (ถ้าข้อใดไม่ผ่าน = การ์ดขึ้นแต่ **เงียบ**)
+
+| # | เงื่อนไข | ค่าเริ่มต้น / ดูที่ |
+|---|---|---|
+| 1 | ยอดโดเนท **≥ `SystemSetting.minAmountForTTS`** (ตัดสินตอน webhook บันทึก ไม่ใช่ตอนแสดงผล) | **10 บาท** = ยอดขั้นต่ำที่ Stripe THB ยอมรับ (migration `20260923214500_tts_threshold_matches_provider_minimum`) · แก้ที่ Admin → "ขั้นต่ำสำหรับ TTS (บาท)" |
+| 2 | หน้าต่างที่แสดงผลต้องไม่ได้ปิดเสียงตัวเอง | Browser Source ของ OBS ต้อง **ไม่มี** `&tts=0` — ถ้ามี ต้องมีหน้าต่าง Edge `/overlay/voice` เปิดค้างไว้ (ดูหัวข้อ 🎙️ ถัดไป) |
+| 3 | 🚨 Emergency Controls ต้องเป็น **🟢 TTS: เปิดอยู่** | Admin → การ์ด Emergency Controls |
+| 4 | เบราว์เซอร์นั้นต้องมีเสียงภาษาไทย | OBS (CEF) เห็นแค่ `Pattara` (ชาย) · Edge ได้ `เปรมวดี` (หญิง) |
+
+- **เช็คเร็วสุด:** Admin → 🧪 ทดสอบ Alert → ยอด `100` → ส่ง → ต้องได้ยินเสียงอ่าน (ไม่ใช่แค่การ์ดเด้ง)
+- **ดู/แก้เกณฑ์อ่านเสียงจากเครื่อง** (ไม่ต้องเปิดเบราว์เซอร์ — สคริปต์ถาม `ADMIN_TOKEN` เองแบบไม่แสดงบนจอ):
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\set-min-tts.ps1 -CheckOnly   # ดูค่าปัจจุบัน (ไม่แก้อะไร)
+  powershell -ExecutionPolicy Bypass -File scripts\set-min-tts.ps1               # ตั้งเป็น 10 (ค่าเริ่มต้นของสคริปต์)
+  powershell -ExecutionPolicy Bypass -File scripts\set-min-tts.ps1 -Amount 20    # ตั้งเกณฑ์เอง
+  ```
+  ยิง production โดยค่าเริ่มต้น · ใช้ `-Local` เพื่อยิงไป `http://localhost:<PORT ใน .env>` · `-BaseUrl <url>` ถ้าโดเมนเปลี่ยน
+- **หาสาเหตุที่ไม่อ่าน:** เติม `&ttsdiag=1` ท้าย URL ของ Browser Source ชั่วคราว → แผงมุมขวาล่างโชว์รายชื่อเสียงไทย + "สถานะอ่านเสียงของหน้าต่างนี้: เปิด/ปิด (?tts=0)"
+- **ดูไทม์ไลน์การ์ด/เสียง:** เติม `&alertdiag=1` → ถ้าไฟล์เสียงหายจะเห็นบรรทัด `sound ไม่โหลด: /alerts/alert.mp3`
+- **เสียง "ติ๊ง" เตือน (`alert.mp3`):** โปรเจกต์ยังไม่มีไฟล์นี้ → `/alerts/alert.mp3` = **404** และเบราว์เซอร์จะเงียบแบบไม่แจ้ง error
+  วิธีใส่: วางไฟล์ MP3 ที่ `public/alerts/alert.mp3` แล้ว redeploy (แหล่งไฟล์ฟรีดูใน `public/alerts/README.txt`)
+
+> เกณฑ์อ่านเสียงต้อง **ไม่สูงกว่ายอดที่ผู้ชมจ่ายได้จริง** (Stripe THB ขั้นต่ำ ฿10) ไม่งั้นโดเนทที่จ่ายแล้วจะขึ้นการ์ดแต่ไม่มีเสียง
+> และจำไว้ว่า `ttsEnabled` ถูกบันทึกลง DB **ตอน webhook** — เปลี่ยนเกณฑ์แล้วต้องมีโดเนท/Test Alert ใหม่จึงจะเห็นผล
 
 ## 🎙️ ตั้งค่า Edge ให้เป็น "ตัวอ่านเสียง" (ได้เสียงหญิงไทยธรรมชาติ)
 
@@ -149,5 +184,7 @@ OBS (CEF) เห็นเฉพาะเสียงที่ติดตั้�
 > ส่วน OBS (CEF) เห็นเฉพาะเสียงที่ติดตั้งใน Windows ซึ่งบนเครื่องนี้มีแค่ `Pattara` (ชาย)
 
 
-- ยังใช้ Stripe **Test Mode** (ยังไม่เปลี่ยนเป็น Live) — เมื่อพร้อมค่อยเปลี่ยน `STRIPE_SECRET_KEY` + สร้าง webhook endpoint โหมด Live + อัปเดต `STRIPE_WEBHOOK_SECRET` แล้ว redeploy (ไม่ต้องแก้โค้ด)
+- **ตอนนี้ใช้ Stripe Live Mode (ตัดเงินจริง)** — ถ้าจะเปลี่ยนคีย์ ต้องเปลี่ยนพร้อมกัน: `STRIPE_SECRET_KEY` + webhook endpoint ที่โหมดเดียวกัน + `STRIPE_WEBHOOK_SECRET` ของ endpoint นั้น แล้ว redeploy (ไม่ต้องแก้โค้ด)
+- ⚠️ **URL ของ webhook endpoint ต้องมี path `/api/webhooks/payment` เสมอ** — เคยพลาดแล้ว: ตั้งเป็นรากเว็บ `/` → Stripe ได้ `200` จากหน้าเว็บ ดูเหมือนส่งสำเร็จ แต่ **ไม่มีแจ้งเตือนเลย** และ Stripe จะ **ไม่ retry** (ต้องกด **Resend** เองที่ Developers → Events → เลือก event)
+- ค่าตั้งเกณฑ์อ่านเสียง/ตรวจสอบจากเครื่อง: `scripts\set-min-tts.ps1` (ดูหัวข้อ 🔊 เสียงอ่าน (TTS) ด้านบน)
 - Database production: schema ถูกสร้าง/อัปเดตอัตโนมัติทุกครั้งที่ deploy (entrypoint รัน `prisma migrate deploy` + seed ครั้งแรก) → ไม่ต้องทำมือ

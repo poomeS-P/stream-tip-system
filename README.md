@@ -13,7 +13,7 @@
 - 🔒 **Webhook Signature Verification** — ยืนยันการชำระเงินจาก Stripe โดยตรง
 - 🔁 **Idempotency Protection** — ป้องกัน Webhook ซ้ำด้วย DB Unique Constraint
 - 📺 **OBS Browser Source Alert** — แสดงแจ้งเตือนบน Stream ผ่าน Server-Sent Events
-- 🔊 **TTS (Text-to-Speech)** — อ่านข้อความบริจาคออกเสียงผ่าน Web Speech API
+- 🔊 **TTS (Text-to-Speech)** — อ่านข้อความบริจาคออกเสียงผ่าน Web Speech API (อ่านเมื่อยอด ≥ `minAmountForTTS` — ค่าเริ่มต้น ฿10)
 - 🛡️ **Content Filter** — กรองคำหยาบ / XSS / จำกัดความยาวข้อความ
 - 🚨 **Emergency Kill Switch** — ปิด Alert และ TTS ทันทีจาก Dashboard
 - 📊 **Admin Dashboard** — ดูประวัติทิป ทดสอบ Alert จัดการคิวและ Blocklist
@@ -263,6 +263,15 @@ npm run db:push      # Sync schema กับ DB (ไม่มี migration histo
 npm run db:seed      # Seed ข้อมูลเริ่มต้น
 npm run db:studio    # เปิด Prisma Studio (DB GUI)
 ```
+
+### 🧰 สคริปต์ช่วยงาน (โฟลเดอร์ `scripts/`)
+
+| สคริปต์ | ใช้ทำอะไร |
+|---|---|
+| `set-min-tts.ps1` | ดู/ตั้งค่า **เกณฑ์อ่านเสียง** (`minAmountForTTS`) ของระบบที่ deploy อยู่ผ่าน Admin API — ไม่ต้องเปิดเบราว์เซอร์ (`-CheckOnly` = ดูอย่างเดียว · `-Local` = ยิงเครื่องตัวเอง) |
+| `start-stripe-listen.ps1` | เปิด Stripe CLI forward webhook ไป localhost (ดึงพอร์ต/คีย์จาก `.env`) |
+| `sync-stripe-secret.ps1` | ซิงก์ `STRIPE_WEBHOOK_SECRET` ใน `.env` ให้ตรงกับ Stripe CLI |
+| `e2e/*.ts` | ชุดทดสอบ E2E (ดู [docs/E2E_RUNBOOK.md](docs/E2E_RUNBOOK.md)) |
 
 ---
 

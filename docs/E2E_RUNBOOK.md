@@ -138,7 +138,7 @@ npm run db:seed
 
 **ตรวจต่อ**: `npx tsx scripts/e2e/02-verify-schema-seed.ts`
 - `[PASS] พบ SystemSetting id=default`
-- ค่าที่ใช้ในการทดสอบ: `minTipAmount=10`, `minAmountForTTS=20`, `alertDurationSec=8`, `bannedWords` มี 11 คำ
+- ค่าที่ใช้ในการทดสอบ: `minTipAmount=1`, `minAmountForTTS=10`, `alertDurationSec=8`, `bannedWords` มี 11 คำ
 - `[PASS] Emergency เปิดอยู่ทั้ง Alert และ TTS (พร้อมทดสอบ SSE)`
 
 ## ขั้นตอนที่ 6 — ตั้งค่า Stripe Test Mode (environment variables)
@@ -362,7 +362,7 @@ npx tsx scripts/e2e/06-sse-client.ts --no-token
 |---|---|---|
 | เสียง Alert | ฟังจาก OBS Browser Source (หรือ browser เปิด `/overlay?token=...`) | ได้ยินเสียง alert ดังเมื่อการ์ดโผล่ (ต้องมี `public/alerts/alert.mp3`) |
 | TTS | ฟังเสียงอ่านชื่อ + ยอด + ข้อความ (Web Speech API, `lang=th-TH`) | อ่านข้อความถูกต้องเมื่อ `ttsEnabled = true` |
-| เงื่อนไข TTS | `amount >= minAmountForTTS` (seed = 20) | ยอด 100 → `ttsEnabled = true` / ยอด 10 → `false` |
+| เงื่อนไข TTS | `amount >= minAmountForTTS` (seed = 10 = ยอดขั้นต่ำที่ Stripe THB ยอมรับ) | ยอด 100 → `ttsEnabled = true` · ยอด 10 → `true` (เท่ากับเกณฑ์) · ยอด 5 → `false` |
 | ปุ่มปิด TTS | กด Emergency TTS mute ใน Dashboard | TTS หยุดทันที (ทั้งที่กำลังเล่นและ alert ถัดไป) |
 | **เสียงที่ถูกเลือก** | เติม `&ttsdiag=1` ท้าย URL ของ overlay → ดูแผงมุมล่างขวา | ต้องแสดงเสียงไทยที่ระบบเลือก (หญิง/ธรรมชาติ ก่อนเสียงผู้ชาย) |
 
@@ -572,7 +572,7 @@ curl.exe -i -X POST "$base/api/alerts/test" -H "Authorization: Bearer $admin" -H
 | SSE endpoint | `GET http://localhost:3300/api/alerts/stream?token=<OVERLAY_TOKEN>` |
 | ACK endpoint | `POST http://localhost:3300/api/alerts/ack?token=<OVERLAY_TOKEN>` |
 | PostgreSQL (Docker) | container `stream_tip_postgres` · port `5432` · db `stream_tip_db` · user/pass `postgres` / `<DB_PASSWORD>` |
-| Seed defaults | `minTipAmount=10` · `minAmountForTTS=20` · `alertDurationSec=8` · priority `<100→0`, `100–499→5`, `≥500→10` |
+| Seed defaults | `minTipAmount=1` · `minAmountForTTS=10` · `alertDurationSec=8` · priority `<100→0`, `100–499→5`, `≥500→10` |
 | สคริปต์ | `npx tsx scripts/e2e/<file>.ts` (tsx มีอยู่ใน devDependencies แล้ว) |
 | State file | `%TEMP%\stream-tip-e2e-state.json` |
 
