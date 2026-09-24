@@ -227,6 +227,9 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     // เล่นเสียง Alert Sound
     const audio = new Audio(payload.soundUrl);
     audio.volume = 0.8;
+    // ไฟล์เสียงหาย = เบราว์เซอร์ไม่ยอมเล่น (autoplay policy ก็เงียบได้เช่นกัน)
+    // → บันทึกไว้ในไทม์ไลน์ ?alertdiag=1 เพื่อไม่ให้ "เงียบโดยไม่รู้สาเหตุ"
+    audio.addEventListener("error", () => logDiag(`sound ไม่โหลด: ${payload.soundUrl}`));
     audio.play().catch(() => {/* autoplay policy */});
 
     // TTS (รอให้ animation เด้งขึ้นก่อน)
