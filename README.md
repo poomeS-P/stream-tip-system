@@ -13,7 +13,13 @@
 - 🔒 **Webhook Signature Verification** — ยืนยันการชำระเงินจาก Stripe โดยตรง
 - 🔁 **Idempotency Protection** — ป้องกัน Webhook ซ้ำด้วย DB Unique Constraint
 - 📺 **OBS Browser Source Alert** — แสดงแจ้งเตือนบน Stream ผ่าน Server-Sent Events
+- 🏆 **Top Donate Podium** — ผู้สนับสนุนยอดสะสมสูงสุด 3 อันดับ (ใช้ควันชุดเดียวกับ Overlay เดิม · ย้อมสีทอง/เงิน/ทองแดงตามอันดับ) · นับเฉพาะ **ยอดจริง** (ไม่รวมยอดทดสอบ) · 匿名 → "ไม่ระบุชื่อ"
+  - หน้า Podium: `/podium?token=<OVERLAY_TOKEN>` · ข้อมูลจาก `/api/overlay/top-donors` (อ่านอย่างเดียว · token เดิม)
+  - **สลับกับ Last Follow อัตโนมัติทุก 15 วินาที** ที่ตำแหน่งเดียวกัน ผ่าน `/donate` ของระบบ Overlay เก่า (Last Follow หน้าตาเดิม 100%)
 - 🔊 **TTS (Text-to-Speech)** — อ่านข้อความบริจาคออกเสียงผ่าน Web Speech API (อ่านเมื่อยอด ≥ `minAmountForTTS` — ค่าเริ่มต้น ฿10)
+  - **ตัวอ่านหลัก = Edge `/overlay/voice`** (เสียงหญิงไทยธรรมชาติ) — หน้าต่าง overlay ของ OBS จะ **ไม่อ่านซ้ำเอง** โดยอัตโนมัติ (ผ่าน SSE event `presence`)
+  - ถ้าหน้าต่าง Edge ไม่ได้เปิด (หรือไม่มีเสียงหญิง) ระบบจะ **fallback** ไปใช้เสียงที่ OBS มี (`Pattara`) ⇒ การ์ด/คิว **ไม่พัง** เพราะปัญหาเสียง
+  - ควบคุมผ่าน URL: `&tts=0` ปิด · `&tts=local` บังคับให้หน้าต่างนั้นอ่านเอง · `&ttsvoice=` `&ttsrate=` `&ttspitch=` · `&ttsdiag=1` `&alertdiag=1` · `&ttsselftest=1` (ที่หน้า voice)
 - 🛡️ **Content Filter** — กรองคำหยาบ / XSS / จำกัดความยาวข้อความ
 - 🚨 **Emergency Kill Switch** — ปิด Alert และ TTS ทันทีจาก Dashboard
 - 📊 **Admin Dashboard** — ดูประวัติทิป ทดสอบ Alert จัดการคิวและ Blocklist
@@ -83,6 +89,8 @@ npm run dev
 |------|-----|-----------|
 | Tip Form | `http://localhost:3300/` | สำหรับผู้ชม |
 | OBS Overlay | `http://localhost:3300/overlay?token=YOUR_OVERLAY_TOKEN` | OBS Browser Source |
+| Top Donate Podium | `http://localhost:3300/podium?token=YOUR_OVERLAY_TOKEN` | ผู้สนับสนุนยอดสะสมสูงสุด 3 อันดับ (`&podiumdiag=1` เพื่อวินิจฉัย) |
+| Donate + Last Follow (สลับอัตโนมัติ) | `http://localhost:3000/donate?token=YOUR_OVERLAY_TOKEN` | ตัวสลับของระบบ Overlay เก่า: Last Follow ⇄ Podium ทุก 15 วิ |
 | Admin Login | `http://localhost:3300/admin/login` | เข้าสู่ระบบ Admin |
 | Admin Dashboard | `http://localhost:3300/admin` | จัดการระบบ |
 
@@ -269,6 +277,8 @@ npm run db:studio    # เปิด Prisma Studio (DB GUI)
 | สคริปต์ | ใช้ทำอะไร |
 |---|---|
 | `set-min-tts.ps1` | ดู/ตั้งค่า **เกณฑ์อ่านเสียง** (`minAmountForTTS`) ของระบบที่ deploy อยู่ผ่าน Admin API — ไม่ต้องเปิดเบราว์เซอร์ (`-CheckOnly` = ดูอย่างเดียว · `-Local` = ยิงเครื่องตัวเอง) |
+| `check-thai-voices.ps1` | ตรวจ **เสียงไทยที่ Windows มี** + บอกว่าแอปจะเลือกเสียงไหน (คะแนนสูตรเดียวกับ `src/lib/tts/voice.ts`) · `-Simulate "<ชื่อเสียง>"` = ลองก่อนติดตั้ง · exit `0`=มีเสียงหญิง / `2`=มีแต่ชาย / `1`=ไม่มีเสียงไทย |
+| `top-donors-preview.ts` | พิมพ์ **Top Donors (ยอดสะสม)** จาก DB จริงด้วยสูตรเดียวกับ API · ค่าเริ่มต้นนับเฉพาะยอดจริง (`--include-test` = รวมยอดทดสอบสำหรับ dev) |
 | `start-stripe-listen.ps1` | เปิด Stripe CLI forward webhook ไป localhost (ดึงพอร์ต/คีย์จาก `.env`) |
 | `sync-stripe-secret.ps1` | ซิงก์ `STRIPE_WEBHOOK_SECRET` ใน `.env` ให้ตรงกับ Stripe CLI |
 | `e2e/*.ts` | ชุดทดสอบ E2E (ดู [docs/E2E_RUNBOOK.md](docs/E2E_RUNBOOK.md)) |
