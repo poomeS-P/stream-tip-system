@@ -23,8 +23,29 @@ export interface SpeechVoiceInfo {
   default: boolean;
 }
 
-/** คำในชื่อเสียงที่บ่งชี้ว่าเป็น "เสียงผู้หญิง" */
-const FEMALE_HINTS = ["premwadee", "เปรมวดี", "kanya", "female", "หญิง", "woman"];
+/**
+ * คำในชื่อเสียงที่บ่งชี้ว่าเป็น "เสียงผู้หญิง"
+ *
+ * หมายเหตุสำคัญ: ชื่อเสียง "ไม่จำเป็น" ต้องมีคำเหล่านี้เพื่อให้ชนะการเลือก
+ * เพราะเสียงไทยทุกตัวได้คะแนนฐานเท่ากัน (1,000) การหักคะแนนเสียงผู้ชาย (−400)
+ * ทำให้เสียงหญิงชนะอยู่แล้วเมื่อเครื่องมีเสียงให้เลือก — hint เหล่านี้เป็นแค่ตัวช่วย
+ * จัดลำดับให้ชัดขึ้น และทำให้ `?ttsvoice=` (จับแบบ substring) ใช้งานได้ตรงขึ้น
+ */
+const FEMALE_HINTS = [
+  "premwadee",
+  "เปรมวดี",
+  "kanya",
+  "female",
+  "หญิง",
+  "woman",
+  "chompoo",
+  "ชมพู",
+  "ploy",
+  "พลอย",
+  "nina",
+  "หญิงไทย",
+  "thai female",
+];
 
 /** คำในชื่อเสียงที่บ่งชี้ว่าเป็น "เสียงผู้ชาย" (ใช้หักคะแนน ไม่ได้ห้ามใช้ — ถ้าเครื่องมีแค่นี้ก็ต้องใช้) */
 const MALE_HINTS = ["pattara", "ภัทร", "niwat", "นิวัฒน์", "male", "david", "mark"];
@@ -94,16 +115,28 @@ export function pickThaiVoice(
   return best;
 }
 
+/**
+ * คะแนนของเสียงทุกตัวที่ "ใช้ได้" เรียงจากมากไปน้อย พร้อมคะแนนของแต่ละตัว
+ *
+ * เป็นตัวเดียวที่ใช้ทั้งการเลือกเสียงจริง (pickThaiVoice) และแผงวินิจฉัย (?ttsdiag=1)
+ * → ไม่มีสูตรให้คะแนนซ้ำสองที่ในระบบ
+ */
+export function rankVoices(
+  voices: readonly SpeechVoiceInfo[],
+  preferName?: string | null
+): { voice: SpeechVoiceInfo; score: number }[] {
+  return voices
+    .map((voice) => ({ voice, score: scoreVoice(voice, preferName) }))
+    .filter((row): row is { voice: SpeechVoiceInfo; score: number } => row.score !== null)
+    .sort((a, b) => b.score - a.score);
+}
+
 /** รายชื่อเสียงไทยทั้งหมด เรียงจากคะแนนมากไปน้อย — ใช้กับ `?ttsdiag=1` */
 export function listThaiVoices(
   voices: readonly SpeechVoiceInfo[],
   preferName?: string | null
 ): SpeechVoiceInfo[] {
-  return voices
-    .map((voice) => ({ voice, score: scoreVoice(voice, preferName) }))
-    .filter((row): row is { voice: SpeechVoiceInfo; score: number } => row.score !== null)
-    .sort((a, b) => b.score - a.score)
-    .map((row) => row.voice);
+  return rankVoices(voices, preferName).map((row) => row.voice);
 }
 
 /** true = เสียงที่เลือกน่าจะเป็นเสียงผู้ชาย (ใช้เตือนใน diag ว่าเครื่องนี้ยังไม่มีเสียงผู้หญิงไทย) */
@@ -115,4 +148,23 @@ export function isLikelyMaleVoice(voice: SpeechVoiceInfo | null): boolean {
     MALE_HINTS.some((hint) => name.includes(hint)) &&
     !FEMALE_HINTS.some((hint) => name.includes(hint))
   );
+}
+
+/** true = เสียงนี้เป็นเสียงผู้หญิง (มีคำใบ้หญิง และไม่มีคำใบ้ชาย) */
+export function isLikelyFemaleVoice(voice: SpeechVoiceInfo | null): boolean {
+  if (!voice) return false;
+
+  const name = voice.name.toLowerCase();
+  return (
+    FEMALE_HINTS.some((hint) => name.includes(hint)) &&
+    !MALE_HINTS.some((hint) => name.includes(hint))
+  );
+}
+
+/** true = เสียงนี้เป็นเสียงคุณภาพสูง/อ่านธรรมชาติ (Natural · Neural · Online · Google ฯลฯ) */
+export function isNaturalVoice(voice: SpeechVoiceInfo | null): boolean {
+  if (!voice) return false;
+
+  const name = voice.name.toLowerCase();
+  return NATURAL_HINTS.some((hint) => name.includes(hint));
 }

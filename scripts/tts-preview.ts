@@ -16,7 +16,10 @@ import {
   DEFAULT_TTS_PITCH,
   DEFAULT_TTS_RATE,
   buildVoiceDiag,
+  classifyVoiceSystem,
+  formatTtsDecision,
   planSpeech,
+  planTts,
   resolveTtsConfig,
 } from "../src/lib/tts/speech-engine";
 import { buildSpeechText, sanitizeForSpeech, thaiBahtToWords } from "../src/lib/tts/speech-text";
@@ -170,6 +173,73 @@ section("7) ตัวอย่างจากเครื่องที่ไ�
 for (const line of buildVoiceDiag(cefVoices, defaults, pickedCef)) {
   console.log(`  | ${line}`);
 }
+
+section("8) โหมดตัวอ่านเสียงจาก URL (?tts= / ?tts=local / ?tts=0)");
+const ttsDefault = resolveTtsConfig("");
+check("ไม่ระบุ ?tts → เปิด + โหมด auto", `${ttsDefault.enabled}/${ttsDefault.mode}`, "true/auto");
+check("?tts=1 → เปิด + โหมด auto", `${resolveTtsConfig("?tts=1").enabled}/${resolveTtsConfig("?tts=1").mode}`, "true/auto");
+check("?tts=local → เปิด + โหมด local (บังคับอ่านจากหน้านี้)", `${resolveTtsConfig("?tts=local").enabled}/${resolveTtsConfig("?tts=local").mode}`, "true/local");
+check("?tts=0 → ปิด", `${resolveTtsConfig("?tts=0").enabled}/${resolveTtsConfig("?tts=0").mode}`, "false/auto");
+check("?ttsvoice= ยังใช้ได้เหมือนเดิม", String(resolveTtsConfig("?ttsvoice=premwadee").voiceName), "premwadee");
+check("?ttsdiag=1 ยังใช้ได้เหมือนเดิม", String(resolveTtsConfig("?ttsdiag=1").diag), "true");
+
+section("9) ตัดสินใจอ่านเสียง (planTts) — Edge เป็นตัวอ่านหลัก + fallback");
+const edgeFemale = edgeVoices.find((v) => v.name.includes("เปรมวดี")) ?? null;
+check("จำแนกระบบเสียง: Edge Thai female", classifyVoiceSystem(edgeFemale).system, "edge-online-thai-female");
+check("จำแนกระบบเสียง: Windows Thai male", classifyVoiceSystem(voice("Microsoft Pattara - Thai (Thailand)", "th-TH", true)).system, "local-thai-male");
+check("จำแนกระบบเสียง: ไม่มีเสียงไทย", classifyVoiceSystem(null).system, "browser-default");
+
+const decide = (overrides: Partial<Parameters<typeof planTts>[0]>) =>
+  planTts({
+    payloadTtsEnabled: true,
+    config: defaults,
+    emergencyTtsMuted: false,
+    speechSynthesisAvailable: true,
+    externalVoiceClients: 0,
+    voices: edgeVoices,
+    ...overrides,
+  });
+
+const edgeSpeak = decide({});
+check("Edge มีเสียงหญิง + ไม่มีตัวอ่านอื่น → อ่านด้วยเสียงหญิง (ไม่ fallback)", `${edgeSpeak.action}/${edgeSpeak.system}/fallback=${edgeSpeak.fallbackUsed}`, "speak/edge-online-thai-female/fallback=false");
+check("ข้อความ log ของกรณีนี้", edgeSpeak.voiceName ?? "-", "Microsoft เปรมวดี Online (Natural) - Thai (Thailand) [th-TH]");
+
+const cefOnly = decide({ voices: cefVoices });
+check("OBS/CEF มีแต่ Pattara → อ่านได้แต่เป็น fallback", `${cefOnly.action}/${cefOnly.system}/fallback=${cefOnly.fallbackUsed}`, "speak/local-thai-male/fallback=true");
+
+const withExternal = decide({ voices: cefVoices, externalVoiceClients: 1 });
+check("มีตัวอ่านภายนอก (Edge) + โหมด auto → หน้าต่าง OBS skip", `${withExternal.action}/${withExternal.reasonCode}/${withExternal.primary}`, "skip/external-voice-client/external-voice-client");
+
+const forced = decide({ voices: cefVoices, externalVoiceClients: 1, config: { ...defaults, mode: "local" } });
+check("?tts=local → บังคับอ่านจากหน้านี้แม้ Edge เปิดอยู่", `${forced.action}/${forced.system}`, "speak/local-thai-male");
+
+const off = decide({ config: { ...defaults, enabled: false } });
+check("?tts=0 → skip", `${off.action}/${off.reasonCode}`, "skip/window-tts-off");
+
+const lowAmount = decide({ payloadTtsEnabled: false });
+check("server ส่ง ttsEnabled=false → skip", `${lowAmount.action}/${lowAmount.reasonCode}`, "skip/tts-disabled-by-amount");
+
+const emergency = decide({ emergencyTtsMuted: true });
+check("Emergency TTS → skip", `${emergency.action}/${emergency.reasonCode}`, "skip/emergency-tts-muted");
+
+const noSynth = decide({ speechSynthesisAvailable: false });
+check("ไม่มี speechSynthesis → skip (ไม่ทำให้การ์ดพัง)", `${noSynth.action}/${noSynth.reasonCode}`, "skip/no-speech-synthesis");
+
+const noThai = decide({ voices: [voice("Microsoft Zira - English (United States)", "en-US", true)] });
+check("ไม่มีเสียงไทยเลย → อ่านด้วยเสียง default (fallback)", `${noThai.action}/${noThai.system}/fallback=${noThai.fallbackUsed}`, "speak/browser-default/fallback=true");
+
+const preferPremwadee = decide({ config: { ...defaults, voiceName: "premwadee" } });
+check("?ttsvoice=premwadee ยังบังคับเสียงได้", preferPremwadee.system, "edge-online-thai-female");
+
+section("10) บรรทัด log ที่ใช้วินิจฉัย (formatTtsDecision)");
+const logEdge = formatTtsDecision(edgeSpeak);
+const logSkip = formatTtsDecision(withExternal);
+console.log(`  ${logEdge}`);
+console.log(`  ${logSkip}`);
+check("log กรณีอ่านด้วย Edge ระบุระบบเสียง", String(logEdge.includes("system=edge-online-thai-female")), "true");
+check("log กรณีอ่านด้วย Edge ระบุ fallback=no", String(logEdge.includes("fallback=no")), "true");
+check("log กรณี fallback ระบุ fallback=yes", String(formatTtsDecision(cefOnly).includes("fallback=yes")), "true");
+check("log กรณี skip ระบุเหตุผล + ตัวอ่านภายนอก", String(logSkip.includes("primary=external-voice-client") && logSkip.includes("external-voice-client")), "true");
 
 console.log(`\nสรุป: ผ่าน ${passed} · ไม่ผ่าน ${failed}`);
 if (failed > 0) {

@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
-import { broadcastAlert } from "@/lib/sse";
+import { broadcastAlert, getConnectedClientCount } from "@/lib/sse";
 import { DEFAULT_MIN_AMOUNT_FOR_TTS } from "@/lib/payment/limits";
 import type { AlertEventPayload } from "@/types";
 
@@ -9,9 +9,15 @@ import type { AlertEventPayload } from "@/types";
  *
  * ลำดับสถานะ: PENDING -> PLAYING (ส่งให้ OBS แล้ว) -> COMPLETED (OBS ACK หลังแสดงจบ)
  *
- * กติกาสำคัญที่แก้ปัญหานี้:
- *   "ห้ามส่ง Alert ใหม่ทับของเดิม" — ถ้ามีรายการ PLAYING อยู่ ต้องปล่อยให้อันใหม่เป็น PENDING
- *   แล้วค่อยถูกส่งต่อเมื่อ OBS ACK ของเดิม (ดู /api/alerts/ack) -> ได้คิวที่เล่นทีละอันเสมอ
+ * กติกาสำคัญ 2 ข้อ:
+ *   1) "ห้ามส่ง Alert ใหม่ทับของเดิม" — ถ้ามีรายการ PLAYING อยู่ ต้องปล่อยให้อันใหม่เป็น PENDING
+ *      แล้วค่อยถูกส่งต่อเมื่อ OBS ACK ของเดิม (ดู /api/alerts/ack) -> ได้คิวที่เล่นทีละอันเสมอ
+ *   2) "ห้ามจองคิว (mark PLAYING) ตอนไม่มี client เชื่อมต่อ" — broadcastAlert() ส่งถึงเฉพาะ
+ *      SSE client ที่กำลังเชื่อมต่ออยู่ ถ้าจองไปทั้งที่ไม่มีใครรับ event รายการนั้นจะ "หายถาวร"
+ *      (สถานะเป็น PLAYING แต่ไม่มีใครเห็น แล้ว reaper ปิดเป็น COMPLETED หลังเลยกำหนด)
+ *      → ปล่อยเป็น PENDING แล้วให้ tick ตอน client เชื่อมต่อ (ดู /api/alerts/stream) เป็นคนส่ง
+ *
+ * หมายเหตุ: ตัวนับ client เป็น in-memory ของ process เดียว (รองรับ 1 replica ตามที่ออกแบบไว้)
  */
 
 type AlertRowWithTip = Prisma.AlertQueueGetPayload<{ include: { tip: true } }>;
@@ -79,11 +85,11 @@ export interface QueueTickResult {
   broadcast: boolean;
   /** alertId ที่ถูกส่ง (null = ไม่ได้ส่ง) */
   alertId: string | null;
-  reason: "sent" | "busy" | "empty" | "race";
+  reason: "sent" | "busy" | "empty" | "race" | "no-client";
 }
 
 /**
- * ส่ง Alert ถัดไปให้ Overlay — เฉพาะเมื่อ "ว่าง" จริง
+ * ส่ง Alert ถัดไปให้ Overlay — เฉพาะเมื่อ "ว่าง" และ "มี client รับอยู่"
  *
  * เรียกได้ทุกจุดที่คิวอาจขยับ: webhook (มีโดเนทใหม่) · ACK (แสดงจบ) · OBS เชื่อมต่อ · admin skip
  */
@@ -96,6 +102,14 @@ export async function broadcastNextPendingAlertIfIdle(): Promise<QueueTickResult
   });
 
   if (playing) return { broadcast: false, alertId: null, reason: "busy" };
+
+  // ไม่มี overlay (หน้าต่างที่วาดการ์ด) เชื่อมต่ออยู่ → ห้ามจองคิว (จองไปแล้ว event จะหายถาวร)
+  // ปล่อยเป็น PENDING ไว้: tick ตอน overlay เชื่อมต่อ (/api/alerts/stream) จะส่งให้เอง
+  // หมายเหตุ: นับเฉพาะ role="overlay" — หน้าต่างอ่านเสียงเท่านั้น (/overlay/voice) ไม่วาดการ์ด
+  // จึงต้องไม่ทำให้คิวถูกจองและไม่ ACK (ดู src/lib/sse.ts)
+  if (getConnectedClientCount("overlay") === 0) {
+    return { broadcast: false, alertId: null, reason: "no-client" };
+  }
 
   const next = await db.alertQueue.findFirst({
     where: { status: "PENDING" },

@@ -7,13 +7,16 @@ import {
   DEFAULT_TTS_PITCH,
   DEFAULT_TTS_RATE,
   buildVoiceDiag,
+  formatTtsDecision,
   loadAvailableVoices,
-  planSpeech,
+  planTts,
   resolveTtsConfig,
   speakText,
   type TtsConfig,
 } from "@/lib/tts/speech-engine";
 import { pickThaiVoice, type SpeechVoiceInfo } from "@/lib/tts/voice";
+import { buildSpeechText } from "@/lib/tts/speech-text";
+import type { ClientCounts } from "@/lib/sse";
 
 interface OverlayClientProps {
   token: string;
@@ -88,10 +91,13 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     pitch: DEFAULT_TTS_PITCH,
     diag: false,
     enabled: true,
+    mode: "auto",
   });
   // รายชื่อเสียงทั้งหมดของเครื่องนี้ + เสียงไทยที่เลือกไว้
   const ttsVoicesRef = useRef<SpeechVoiceInfo[]>([]);
   const ttsVoiceRef = useRef<SpeechVoiceInfo | null>(null);
+  // จำนวนหน้าต่างอ่านเสียงภายนอก (Edge /overlay/voice) ที่เชื่อมต่ออยู่ — มาจาก SSE event "presence"
+  const externalVoiceClientsRef = useRef(0);
   // บรรทัดสรุปสำหรับแผง ?ttsdiag=1 (เก็บใน ref แล้วให้ interval ดึงไปแสดง — กัน pattern setState ใน effect)
   const ttsDiagLinesRef = useRef<string[]>([]);
   const [ttsDiagLines, setTtsDiagLines] = useState<string[]>([]);
@@ -237,21 +243,55 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     // - อ่านตัวเลขเป็นคำไทย + ตัด emoji/★/URL (ดู src/lib/tts/speech-text.ts)
     // - rate/pitch กลาง ๆ นุ่มนวล ปรับได้ท้าย URL (?ttsrate= ?ttspitch= ?ttsvoice=)
     // - ปิดการอ่านเสียงของหน้าต่างนี้ได้ด้วย ?tts=0 (ใช้เมื่อให้หน้าต่างอื่น เช่น Edge เป็นคนอ่าน)
+    // ---------- เสียงอ่าน (TTS) ----------
+    // ทั้งบล็อกอยู่ใน try/catch โดยเจตนา: TTS พัง/อ่านไม่ได้ ต้องไม่ทำให้การ์ด คิว
+    // หรือ pipeline ของ alert เสียหาย (การ์ดถูก set ไปแล้วด้านบนก่อนถึงบรรทัดนี้)
     const ttsConfig = ttsConfigRef.current;
-    const shouldTTS = payload.ttsEnabled && ttsConfig.enabled && !emergencyRef.current.ttsMuted;
 
-    if (shouldTTS && "speechSynthesis" in window) {
-      const plan = planSpeech(
-        { donorName: payload.donorName, amount: payload.amount, message: payload.message },
-        ttsVoicesRef.current,
-        ttsConfig
-      );
+    try {
+      const decision = planTts({
+        payloadTtsEnabled: payload.ttsEnabled,
+        config: ttsConfig,
+        emergencyTtsMuted: emergencyRef.current.ttsMuted,
+        speechSynthesisAvailable: "speechSynthesis" in window,
+        externalVoiceClients: externalVoiceClientsRef.current,
+        voices: ttsVoicesRef.current,
+      });
 
-      logDiag(`tts "${plan.text}" → ${plan.voiceName ?? "default voice"}`);
+      // log: เลือกระบบเสียงไหน (Edge/Windows) · ชื่อเสียง · อ่านหรือ skip · fallback เพราะอะไร
+      logDiag(formatTtsDecision(decision));
 
-      setTimeout(() => {
-        speechRef.current = speakText(window.speechSynthesis, plan.text, plan.voice, ttsConfig);
-      }, 800);
+      if (decision.action === "speak") {
+        const speechText = buildSpeechText({
+          donorName: payload.donorName,
+          amount: payload.amount,
+          message: payload.message,
+        });
+
+        setTimeout(() => {
+          try {
+            const utterance = speakText(window.speechSynthesis, speechText, decision.voice, ttsConfig);
+            speechRef.current = utterance;
+
+            // "tts start" = เบราว์เซอร์เริ่มออกเสียงแล้ว (ถ้าไม่ได้ยิน = ปัญหาเสียงออก/OBS Audio Mixer)
+            // "tts error" = สั่งอ่านแล้วไม่สำเร็จ (ข้าม canceled/interrupted ที่เกิดปกติตอนจบรายการ)
+            utterance.onstart = () => logDiag("tts start");
+            utterance.onerror = (event) => {
+              const reason = event.error ?? "unknown";
+              if (reason !== "canceled" && reason !== "interrupted") {
+                logDiag(`tts error: ${reason}`);
+              }
+            };
+          } catch (error) {
+            logDiag(`tts speak error: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }, 800);
+      }
+
+      // อัปเดตแผง ?ttsdiag=1 ให้เห็น "การตัดสินใจล่าสุด" ด้วย
+      ttsDiagLinesRef.current = buildVoiceDiag(ttsVoicesRef.current, ttsConfig, decision.voice, decision);
+    } catch (error) {
+      logDiag(`tts error: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     timeoutRef.current = setTimeout(() => {
@@ -365,6 +405,30 @@ export default function OverlayClient({ token }: OverlayClientProps) {
         }
       });
 
+      /**
+       * event "presence": จำนวน client แยกบทบาทที่ server ส่งมา
+       * - voice > 0 = มีหน้าต่างอ่านเสียงภายนอก (Edge /overlay/voice) เชื่อมต่ออยู่
+       *   → โหมด auto: หน้าต่างนี้จะ "ไม่" อ่านเสียงเอง เพื่อให้เสียงหญิงของ Edge เป็นตัวอ่านหลัก
+       * (ต้องการให้หน้านี้อ่านเองแม้ Edge เปิดอยู่ → ใส่ ?tts=local ใน URL)
+       */
+      es.addEventListener("presence", (e) => {
+        try {
+          const counts: ClientCounts = JSON.parse(e.data);
+          const previous = externalVoiceClientsRef.current;
+          externalVoiceClientsRef.current = counts.voice;
+
+          if (previous !== counts.voice) {
+            logDiag(
+              counts.voice > 0
+                ? `presence: overlay=${counts.overlay} voice=${counts.voice} → Edge เป็นตัวอ่านเสียง (หน้านี้ไม่อ่านเอง)`
+                : `presence: overlay=${counts.overlay} voice=${counts.voice} → ไม่มีตัวอ่านภายนอก: หน้านี้จะอ่านเอง`
+            );
+          }
+        } catch {
+          console.error("[overlay] Failed to parse presence event");
+        }
+      });
+
       es.addEventListener("emergency", (e) => {
         try {
           const status: EmergencyStatus = JSON.parse(e.data);
@@ -394,7 +458,7 @@ export default function OverlayClient({ token }: OverlayClientProps) {
     return () => {
       eventSourceRef.current?.close();
     };
-  }, [token, enqueueAlert]);
+  }, [token, enqueueAlert, logDiag]);
 
   return (
     <div className="fixed inset-x-0 bottom-0 flex justify-center pb-24 pointer-events-none">

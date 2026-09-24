@@ -7,6 +7,11 @@
  *   npx tsx scripts/e2e/06-sse-client.ts --ack            # เมื่อได้ alert → ส่ง ACK กลับ และทดสอบ ACK แบบไม่มี token
  *   npx tsx scripts/e2e/06-sse-client.ts --no-token       # ตรวจว่าไม่มี token → 401
  *   npx tsx scripts/e2e/06-sse-client.ts --expect 2       # รอจนได้ alert ครบ 2 ครั้ง
+ *   npx tsx scripts/e2e/06-sse-client.ts --role voice     # จำลองหน้าต่างอ่านเสียงของ Edge (ไม่ ACK, ไม่จองคิว)
+ *   npx tsx scripts/e2e/06-sse-client.ts --role passive   # จำลองหน้าต่างที่แค่อ่าน event เช่นหน้า Podium (ไม่จองคิว)
+ *   npx tsx scripts/e2e/06-sse-client.ts --role overlay   # จำลอง OBS Browser Source (ค่าเริ่มต้นเมื่อไม่ระบุ)
+ *
+ * หมายเหตุ: ไม่ระบุ --role = ไม่ส่งพารามิเตอร์ role (ทดสอบความเข้ากันได้กับ URL เดิม → server ถือเป็น overlay)
  *
  * ข้อจำกัด: เสียง Alert และ TTS (Web Speech API) ทำงานใน browser เท่านั้น
  * สคริปต์นี้ตรวจได้เฉพาะ payload (soundUrl / ttsEnabled) และไฟล์เสียงใน public/alerts
@@ -38,6 +43,8 @@ interface Options {
   expect: number;
   ack: boolean;
   noToken: boolean;
+  /** "voice"/"passive" = จำลองหน้าต่างที่ไม่ใช่ OBS · null = ไม่ส่งพารามิเตอร์ role (default ของ server = overlay) */
+  role: "voice" | "passive" | null;
 }
 
 function parseArgs(): Options {
@@ -49,12 +56,14 @@ function parseArgs(): Options {
 
   const seconds = Number(get("seconds") ?? 30);
   const expect = Number(get("expect") ?? 1);
+  const role = get("role");
 
   return {
     seconds: Number.isFinite(seconds) && seconds > 0 ? seconds : 30,
     expect: Number.isFinite(expect) && expect > 0 ? expect : 1,
     ack: args.includes("--ack"),
     noToken: args.includes("--no-token"),
+    role: role === "voice" ? "voice" : role === "passive" ? "passive" : null,
   };
 }
 
@@ -74,13 +83,15 @@ async function main(): Promise<void> {
   }
 
   const token = options.noToken ? "" : requireEnv("OVERLAY_TOKEN");
-  const streamUrl = `${baseUrl()}/api/alerts/stream?token=${encodeURIComponent(token)}`;
+  const roleParam = options.role ? `&role=${options.role}` : "";
+  const streamUrl = `${baseUrl()}/api/alerts/stream?token=${encodeURIComponent(token)}${roleParam}`;
 
   section("STEP 12 — เชื่อมต่อ SSE");
   if (options.noToken) {
     info("   ทดสอบกรณีไม่มี token");
   } else {
     info(`   url = ${streamUrl.replace(encodeURIComponent(token), "***")}`);
+  info(`   role = ${options.role ?? "overlay (ค่าเริ่มต้น — ไม่ส่งพารามิเตอร์ role)"}`);
   }
 
   const res = await fetch(streamUrl);
@@ -183,6 +194,11 @@ async function main(): Promise<void> {
             fail(`ACK โดยไม่มี token ได้ HTTP ${withoutToken.status}`, "คาดหวัง 401");
           }
         }
+      } else if (eventName === "presence") {
+        pass("ได้รับ event: presence (จำนวน client แยกบทบาท)");
+        info(
+          `   overlay=${pickNumber(payload, "overlay") ?? "-"} · voice=${pickNumber(payload, "voice") ?? "-"} · total=${pickNumber(payload, "total") ?? "-"}`
+        );
       } else if (eventName === "emergency") {
         pass("ได้รับ event: emergency (Emergency Kill Switch ส่งถึง overlay)");
         info(`   payload = ${JSON.stringify(payload)}`);
