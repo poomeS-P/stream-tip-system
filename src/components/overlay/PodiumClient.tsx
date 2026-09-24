@@ -71,11 +71,12 @@ const SMOKE_FILL: Record<string, number> = {
 };
 
 /**
- * ความกว้างเริ่มต้น: กว้างกว่าการ์ด Last Follow เล็กน้อย เพื่อให้ชื่อ + ยอดตัวใหญ่ยังอ่านครบ
+ * ความกว้างเริ่มต้น: กว้างกว่าการ์ด Last Follow พอสมควร เพื่อให้ชื่อ + ยอด "ตัวใหญ่" อ่านจากระยะไกล
+ * และยังอยู่บรรทัดเดียวเสมอ · กว้างจริง ≈ 686px @1920
  * (การ์ด Last Follow = calc(min(28vw,460px) * .82) ≈ 380px @1920)
  */
-const BOARD_WIDTH_CSS = "calc(min(32vw, 560px) * 0.92)";
-const REFERENCE_WIDTH_PX = 515;
+const BOARD_WIDTH_CSS = "calc(min(38vw, 700px) * 0.98)";
+const REFERENCE_WIDTH_PX = 686;
 
 const POSITIONS: readonly BoardPosition[] = ["bottom-left", "bottom-right", "top-left", "top-right"];
 
@@ -318,7 +319,7 @@ const BOARD_CSS = `
   .board-root {
     position: fixed;
     z-index: 5;
-    width: var(--board-w, calc(min(32vw, 560px) * 0.92));
+    width: var(--board-w, calc(min(38vw, 700px) * 0.98));
     --ink: #eef1f6;
     color: var(--ink);
     /* ฟอนต์ชุดเดียวกับการ์ด Last Follow (Montserrat โหลดด้วย next/font ที่หน้า /podium) */
@@ -337,7 +338,7 @@ const BOARD_CSS = `
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: calc(6px * var(--board-scale, 1));
+    gap: calc(8px * var(--board-scale, 1));
   }
 
   /* พื้นฝ้าจาง ๆ (ไม่บังคับ — ?plate=1) ไม่มีเส้นขอบตามที่กำหนด */
@@ -357,8 +358,8 @@ const BOARD_CSS = `
   .board-title {
     position: relative;
     z-index: 1;
-    margin-bottom: calc(6px * var(--board-scale, 1));
-    font-size: calc(clamp(12px, 1.2vw, 16px) * var(--board-scale, 1));
+    margin-bottom: calc(8px * var(--board-scale, 1));
+    font-size: calc(clamp(13px, 1.35vw, 19px) * var(--board-scale, 1));
     font-weight: 600;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -375,11 +376,11 @@ const BOARD_CSS = `
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: baseline;
-    column-gap: clamp(10px, 1vw, 18px);
+    column-gap: clamp(12px, 1.2vw, 22px);
   }
 
   .board-rank {
-    font-size: calc(clamp(19px, 2vw, 30px) * var(--board-scale, 1));
+    font-size: calc(clamp(22px, 2.6vw, 42px) * var(--board-scale, 1));
     font-weight: 600;
     letter-spacing: 0.06em;
     font-variant-numeric: tabular-nums;
@@ -398,7 +399,7 @@ const BOARD_CSS = `
   /* ชื่อผู้สนับสนุน — คัดค่าจาก .lt-name (600 · .02em · line-height 1.15) แต่พลิกเงาเป็น "แสงขาวนุ่ม"
      ให้เข้าชุดกับชื่อสีดำ (?namecolor=) ที่ต้องลอยอยู่บนฉากได้โดยไม่มีพื้นหลัง */
   .board-name {
-    font-size: calc(clamp(23px, 2.6vw, 40px) * var(--board-scale, 1));
+    font-size: calc(clamp(30px, 3.5vw, 58px) * var(--board-scale, 1));
     font-weight: 600;
     letter-spacing: 0.02em;
     line-height: 1.15;
@@ -414,7 +415,7 @@ const BOARD_CSS = `
 
   /* ยอดเงิน — สไตล์เดียวกับ .lt-name (600 · .02em) และเงาชุดเดิมของการ์ด Last Follow */
   .board-amount {
-    font-size: calc(clamp(23px, 2.6vw, 40px) * var(--board-scale, 1));
+    font-size: calc(clamp(30px, 3.5vw, 58px) * var(--board-scale, 1));
     font-weight: 600;
     letter-spacing: 0.02em;
     color: var(--board-amount-color, #ffd76a);
