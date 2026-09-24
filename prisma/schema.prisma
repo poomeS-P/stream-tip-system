@@ -98,7 +98,9 @@ model SystemSetting {
   streamerName        String   @default("Streamer")
   minTipAmount        Decimal  @default(1.00) @db.Decimal(10, 2)
   maxMessageLength    Int      @default(150)
-  minAmountForTTS     Decimal  @default(20.00) @db.Decimal(10, 2)
+  // เกณฑ์อ่านเสียง = ยอดขั้นต่ำที่ผู้ให้บริการยอมรับ (Stripe THB = 10 บาท)
+  // ห้ามตั้งสูงกว่ายอดที่ผู้ชมจ่ายได้จริง ไม่งั้นโดเนทที่จ่ายแล้วจะขึ้นการ์ดแต่ไม่มีเสียงอ่าน
+  minAmountForTTS     Decimal  @default(10.00) @db.Decimal(10, 2)
   alertDurationSec    Int      @default(8)
   
   // Emergency Controls

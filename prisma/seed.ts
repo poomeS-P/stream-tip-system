@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { DEFAULT_MIN_AMOUNT_FOR_TTS } from "../src/lib/payment/limits";
 
 const prisma = new PrismaClient();
 
@@ -16,7 +17,8 @@ async function main() {
         streamerName: "Streamer",
         minTipAmount: 1.0,
         maxMessageLength: 150,
-        minAmountForTTS: 20.0,
+        // เกณฑ์อ่านเสียง = ยอดขั้นต่ำที่ Stripe ยอมรับ (THB = 10) → โดเนทที่จ่ายได้จริงมีเสียงอ่านเสมอ
+        minAmountForTTS: DEFAULT_MIN_AMOUNT_FOR_TTS,
         alertDurationSec: 8,
         emergencyAlertMuted: false,
         emergencyTTSMuted: false,

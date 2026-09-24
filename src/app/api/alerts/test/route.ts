@@ -3,6 +3,7 @@ import { z } from "zod";
 import { verifyAdminToken } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { filterContent, sanitizeName } from "@/lib/filter";
+import { DEFAULT_MIN_AMOUNT_FOR_TTS } from "@/lib/payment/limits";
 import { broadcastNextPendingAlertIfIdle } from "@/lib/alert-queue";
 import { computeAlertDurationSeconds } from "@/lib/alert-duration";
 
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const bannedWords = settings?.bannedWords ?? [];
   const blockEntire = settings?.blockEntireMessage ?? false;
   const maxLen = settings?.maxMessageLength ?? 150;
-  const minTTS = settings ? Number(settings.minAmountForTTS) : 20;
+  const minTTS = settings ? Number(settings.minAmountForTTS) : DEFAULT_MIN_AMOUNT_FOR_TTS;
 
   const filterResult = filterContent(message, bannedWords, blockEntire, maxLen);
   const cleanName = sanitizeName(donorName, 50);

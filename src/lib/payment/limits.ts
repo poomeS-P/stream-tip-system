@@ -18,3 +18,13 @@ const PROVIDER_MINIMUM_AMOUNT: Record<string, number> = {
 export function getProviderMinimumAmount(currency: string): number {
   return PROVIDER_MINIMUM_AMOUNT[currency.toUpperCase()] ?? 1;
 }
+
+/**
+ * เกณฑ์อ่านเสียงเริ่มต้น (SystemSetting.minAmountForTTS)
+ * ใช้เมื่อยังอ่านค่าใน DB ไม่ได้/ยังไม่มีแถว SystemSetting
+ *
+ * ตั้งให้เท่ากับยอดขั้นต่ำที่ผู้ให้บริการยอมรับ (Stripe THB = 10 บาท) โดยเจตนา
+ * เพราะยอดที่ต่ำกว่านั้น "จ่ายไม่ได้จริง" → เกณฑ์ที่สูงกว่านี้ทำให้โดเนทที่จ่ายได้
+ * ขึ้นการ์ดแต่ไม่มีเสียงอ่าน (เคสจริง: เกณฑ์เดิม 20 บาท → โดเนท ฿10 เงียบ)
+ */
+export const DEFAULT_MIN_AMOUNT_FOR_TTS = PROVIDER_MINIMUM_AMOUNT.THB;

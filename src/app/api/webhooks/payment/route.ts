@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getPaymentProvider } from "@/lib/payment";
+import { DEFAULT_MIN_AMOUNT_FOR_TTS } from "@/lib/payment/limits";
 import { broadcastNextPendingAlertIfIdle } from "@/lib/alert-queue";
 import { computeAlertDurationSeconds } from "@/lib/alert-duration";
 
@@ -140,7 +141,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         // ดึง settings สำหรับ Alert
         const settings = await tx.systemSetting.findUnique({ where: { id: "default" } });
         const tipAmount = Number(paymentTx.amountCharged);
-        const minTTS = settings ? Number(settings.minAmountForTTS) : 20;
+        const minTTS = settings ? Number(settings.minAmountForTTS) : DEFAULT_MIN_AMOUNT_FOR_TTS;
         const duration = computeAlertDurationSeconds({
           donorName: paymentTx.tip.donorName,
           amount: tipAmount,

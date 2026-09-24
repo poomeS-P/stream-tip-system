@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { db } from "@/lib/db";
 import { broadcastAlert } from "@/lib/sse";
+import { DEFAULT_MIN_AMOUNT_FOR_TTS } from "@/lib/payment/limits";
 import type { AlertEventPayload } from "@/types";
 
 /**
@@ -40,7 +41,7 @@ export function toAlertPayload(row: AlertRowWithTip, minAmountForTTS: number): A
 export async function readMinAmountForTTS(): Promise<number> {
   const settings = await db.systemSetting.findUnique({ where: { id: "default" } });
 
-  return settings ? Number(settings.minAmountForTTS) : 20;
+  return settings ? Number(settings.minAmountForTTS) : DEFAULT_MIN_AMOUNT_FOR_TTS;
 }
 
 /**
